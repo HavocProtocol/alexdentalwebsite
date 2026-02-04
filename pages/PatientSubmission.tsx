@@ -4,7 +4,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { AlertCircle, CheckCircle, Send, Loader2, User, FileText, ChevronRight, Activity, ShieldAlert, Scale, ExternalLink } from 'lucide-react';
 import { DENTAL_PROBLEMS, ALEXANDRIA_DISTRICTS, CHRONIC_DISEASES } from '../constants';
 import { saveCase, generateCaseId } from '../services/dataService';
-import { formatNewCaseMessage, sendToTelegram } from '../services/telegramService';
 import { CaseStatus, PatientCase } from '../types';
 
 export const PatientSubmission: React.FC = () => {
@@ -160,11 +159,7 @@ export const PatientSubmission: React.FC = () => {
         additionalNotes: medicalData.additionalNotes,
         status: CaseStatus.RECEIVED,
         submissionDate: new Date().toISOString(),
-        statusHistory: [{
-          status: CaseStatus.RECEIVED,
-          timestamp: new Date().toISOString(),
-          note: 'تم إنشاء الطلب (مع الإقرار الطبي والقانوني)'
-        }],
+        statusHistory: [],
         legalConsents: {
           termsAccepted: medicalData.termsAccepted,
           privacyAccepted: medicalData.privacyAccepted,
@@ -173,9 +168,9 @@ export const PatientSubmission: React.FC = () => {
         }
       };
 
-      saveCase(newCase);
-      const telegramMsg = formatNewCaseMessage(newCase);
-      await sendToTelegram(telegramMsg);
+      // Calls API /api/submit
+      await saveCase(newCase);
+      // Telegram notification is handled by the backend now
 
       setSubmittedId(newCase.id);
       setStep(3);
