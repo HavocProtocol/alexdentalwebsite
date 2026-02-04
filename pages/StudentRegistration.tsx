@@ -16,13 +16,14 @@ export const StudentRegistration: React.FC = () => {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validation
@@ -39,7 +40,8 @@ export const StudentRegistration: React.FC = () => {
       return;
     }
 
-    const result = registerStudent({
+    setLoading(true);
+    const result = await registerStudent({
       fullName: formData.fullName,
       universityId: formData.universityId,
       email: formData.email,
@@ -51,6 +53,7 @@ export const StudentRegistration: React.FC = () => {
         timestamp: new Date().toISOString()
       }
     });
+    setLoading(false);
 
     if (result.success) {
       setSuccess(true);
@@ -137,8 +140,8 @@ export const StudentRegistration: React.FC = () => {
             </div>
           </div>
 
-          <button type="submit" className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-medical-600 hover:bg-medical-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-medical-500">
-            تسجيل حساب
+          <button type="submit" disabled={loading} className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-medical-600 hover:bg-medical-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-medical-500 disabled:bg-gray-400">
+            {loading ? 'جاري التسجيل...' : 'تسجيل حساب'}
           </button>
         </form>
 
