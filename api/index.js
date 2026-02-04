@@ -34,7 +34,6 @@ export default async function handler(req, res) {
 
   // --- DATABASE INIT ---
   try {
-    // Create Cases Table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cases (
         id TEXT PRIMARY KEY,
@@ -53,7 +52,6 @@ export default async function handler(req, res) {
       )
     `);
 
-    // Create Students Table (New)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS students (
         id TEXT PRIMARY KEY,
@@ -75,7 +73,6 @@ export default async function handler(req, res) {
     try {
       const update = body;
 
-      // Handle "Claim Case" Button
       if (update.callback_query) {
         const query = update.callback_query;
         const data = query.data;
@@ -86,7 +83,6 @@ export default async function handler(req, res) {
         if (data.startsWith('claim_')) {
           const caseId = data.split('_')[1];
 
-          // Check Case
           const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [caseId]);
           const patientCase = rows[0];
 
@@ -95,7 +91,6 @@ export default async function handler(req, res) {
           } else if (patientCase.status !== 'RECEIVED' && patientCase.status !== 'SENT_TO_STUDENTS') {
              await bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، تم حجز هذه الحالة بالفعل!", show_alert: true });
           } else {
-             // Update Case
              await pool.query(
                'UPDATE cases SET status = $1, assignedStudent = $2, assignedStudentChatId = $3 WHERE id = $4',
                ['WAITING_ADMIN_APPROVAL', studentUsername, userChatId, caseId]
@@ -139,7 +134,6 @@ export default async function handler(req, res) {
         [data.id, data.fullName, data.phone, data.age, data.gender, data.district, problemsStr, medicalHistoryStr, data.additionalNotes, data.submissionDate]
       );
 
-      // Notify Group
       const message = `
 📢 *حالة جديدة متاحة* 🦷
 
@@ -177,12 +171,37 @@ ${data.problems.map(p => `- ${p}`).join('\n')}
   // Get Cases
   if (url.includes('/api/cases') && method === 'GET') {
     try {
-      const { rows } = await pool.query('SELECT * FROM cases ORDER BY submissionDate DESC');
-      res.status(200).json({ cases: rows });
+      if (url.includes('update')) {
+          // This catches /api/cases/update if routing is tricky, but strictly handled below usually
+      } else {
+        const { rows } = await pool.query('SELECT * FROM cases ORDER BY submissionDate DESC');
+        // Convert comma-separated strings back to arrays for frontend
+        const cases = rows.map(r => ({
+            ...r,
+            problems: r.problem ? r.problem.split(', ') : [],
+            medicalHistory: r.medicalhistory ? r.medicalhistory.split(', ') : [],
+            additionalNotes: r.notes,
+            assignedStudentId: r.assignedstudentchatid ? 'LINKED' : null // Simplified for security/display
+        }));
+        res.status(200).json({ cases });
+        return;
+      }
     } catch (e) {
       res.status(500).json({ error: e.message });
+      return;
     }
-    return;
+  }
+
+  // Update Case Status (Generic)
+  if (url.includes('/api/cases/update') && method === 'POST') {
+      try {
+          const { id, status } = body;
+          await pool.query('UPDATE cases SET status = $1 WHERE id = $2', [status, id]);
+          res.status(200).json({ success: true });
+      } catch (e) {
+          res.status(500).json({ error: e.message });
+      }
+      return;
   }
 
   // Approve Assignment
@@ -225,6 +244,30 @@ ${row.notes || "لا يوجد"}
   }
 
   // --- 3. STUDENT MANAGEMENT ---
+
+  // Get Students
+  if (url.includes('/api/students') && method === 'GET') {
+      try {
+          if (url.includes('update')) return; // skip if caught by wildcard
+          const { rows } = await pool.query('SELECT * FROM students ORDER BY registrationDate DESC');
+          res.status(200).json({ students: rows });
+      } catch (e) {
+          res.status(500).json({ error: e.message });
+      }
+      return;
+  }
+
+  // Update Student Status
+  if (url.includes('/api/students/update') && method === 'POST') {
+      try {
+          const { id, status } = body;
+          await pool.query('UPDATE students SET status = $1 WHERE id = $2', [status, id]);
+          res.status(200).json({ success: true });
+      } catch(e) {
+          res.status(500).json({ error: e.message });
+      }
+      return;
+  }
 
   // Register Student
   if (url.includes('/api/student/register') && method === 'POST') {
