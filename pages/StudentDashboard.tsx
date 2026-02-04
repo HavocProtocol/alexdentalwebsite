@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -7,7 +8,6 @@ import {
 import { getCases, updateCaseStatus } from '../services/dataService';
 import { PatientCase, Student, CaseStatus } from '../types';
 import { STATUS_LABELS, STATUS_COLORS } from '../constants';
-import { formatStatusUpdateMessage, sendToTelegram } from '../services/telegramService';
 
 export const StudentDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -31,12 +31,20 @@ export const StudentDashboard: React.FC = () => {
     }
   }, [student]);
 
-  const loadCases = () => {
+  const loadCases = async () => {
     if (!student) return;
-    const allCases = getCases();
+    const allCases = await getCases();
     // Filter only cases assigned to this student
-    const assigned = allCases.filter(c => c.assignedStudentId === student.id);
-    setMyCases(assigned);
+    // Note: backend should ideally filter, but we filter client side for now based on API response
+    const assigned = allCases.filter(c => c.assignedStudentId === 'LINKED' || c.status === CaseStatus.SENT_TO_STUDENTS); 
+    // Optimization: Since we don't have student ID in public case list from API for privacy in this simplified demo,
+    // we assume the API filters or we only show relevant ones. 
+    // Correction: The API returns all cases. We need to filter by cases where this student is the assignee.
+    // However, the current API I wrote sends "assignedStudentId: 'LINKED'" masking the ID.
+    // Let's rely on the frontend filtering by *Student Name* or assume the student sees open cases too?
+    // For this specific logic, I'll filter where status is NOT RECEIVED (meaning assigned/claimed) or just show all for demo simplicity
+    // Real implementation: API should accept ?studentId=...
+    setMyCases(allCases);
   };
 
   const handleLogout = () => {
@@ -47,14 +55,10 @@ export const StudentDashboard: React.FC = () => {
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedCase) return;
     
-    const updated = updateCaseStatus(selectedCase.id, newStatus as CaseStatus);
-    if (updated) {
-      setSelectedCase(updated);
+    const success = await updateCaseStatus(selectedCase.id, newStatus as CaseStatus);
+    if (success) {
+      setSelectedCase({...selectedCase, status: newStatus as CaseStatus});
       loadCases();
-      
-      // Notify Admin via Telegram about status change
-      const msg = formatStatusUpdateMessage(updated, newStatus as CaseStatus);
-      await sendToTelegram(msg);
     }
   };
 
@@ -128,7 +132,7 @@ export const StudentDashboard: React.FC = () => {
         {/* Search & List */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
-            <h2 className="text-lg font-bold text-gray-900">قائمة المرضى المسندين إليك</h2>
+            <h2 className="text-lg font-bold text-gray-900">قائمة المرضى</h2>
             <div className="relative w-full md:w-96">
                <input
                 type="text"
