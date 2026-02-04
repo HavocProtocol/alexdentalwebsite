@@ -55,6 +55,7 @@ export interface PatientCase {
   status: CaseStatus;
   submissionDate: string; // ISO date string
   assignedStudentId?: string | null;
+  assignedStudent?: string; // Name of the student who claimed the case
   statusHistory: StatusHistoryLog[];
   legalConsents: {
     termsAccepted: boolean;
