@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -298,3 +297,4 @@ export const StudentDashboard: React.FC = () => {
       )}
     </div>
   );
+};
