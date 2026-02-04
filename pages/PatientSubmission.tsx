@@ -41,7 +41,7 @@ export const PatientSubmission: React.FC = () => {
       try {
         const parsed = JSON.parse(savedUser);
         setContactData(prev => ({ ...prev, ...parsed }));
-        setStep(2); 
+        // Removed setStep(2) to allow user to review contact info first
       } catch (e) {
         console.error("Failed to parse saved patient data");
       }
@@ -211,7 +211,7 @@ export const PatientSubmission: React.FC = () => {
                 termsAccepted: false, privacyAccepted: false, disclaimerAccepted: false 
               });
               setSubmittedId(null);
-              setStep(2); 
+              setStep(1); // Go back to Step 1 to allow reviewing contact details for new case
             }}
             className="mt-8 inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-medical-600 hover:bg-medical-700"
           >
