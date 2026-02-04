@@ -11,7 +11,6 @@ import {
 } from '../services/dataService';
 import { PatientCase, CaseStatus, Student, StudentStatus } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, STUDENT_STATUS_LABELS } from '../constants';
-import { formatStatusUpdateMessage, sendToTelegram, formatPrivateStudentMessage, sendPrivateTelegramMessage } from '../services/telegramService';
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -24,7 +23,6 @@ export const AdminDashboard: React.FC = () => {
   // UI State
   const [filteredCases, setFilteredCases] = useState<PatientCase[]>([]);
   const [selectedCase, setSelectedCase] = useState<PatientCase | null>(null);
-  
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   
   // Filters
@@ -78,65 +76,50 @@ export const AdminDashboard: React.FC = () => {
     }
   }, [cases, students, activeTab, statusFilter, searchTerm]);
 
-  const loadData = () => {
-    setCases(getCases());
-    setStudents(getStudents());
+  const loadData = async () => {
+    const [c, s] = await Promise.all([getCases(), getStudents()]);
+    setCases(c);
+    setStudents(s);
   };
 
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedCase) return;
-    const updated = updateCaseStatus(selectedCase.id, newStatus as CaseStatus);
-    if (updated) {
-      setSelectedCase(updated);
+    const success = await updateCaseStatus(selectedCase.id, newStatus as CaseStatus);
+    if (success) {
+      // Optimistic update or reload
+      setSelectedCase({ ...selectedCase, status: newStatus as CaseStatus });
       loadData();
-      if ([CaseStatus.SENT_TO_STUDENTS, CaseStatus.COMPLETED].includes(newStatus as CaseStatus)) {
-        const msg = formatStatusUpdateMessage(updated, newStatus as CaseStatus);
-        await sendToTelegram(msg);
-      }
     }
   };
 
   const handleApproveAssignment = async (caseId: string, studentId: string) => {
-    const updated = approveCaseAssignment(caseId);
-    if (updated) {
-      const student = students.find(s => s.id === studentId);
-      if (student) {
-        // Send Private DM to Student
-        const dm = formatPrivateStudentMessage(updated);
-        await sendPrivateTelegramMessage(dm, student.fullName);
-      }
-      setSelectedCase(updated);
+    const success = await approveCaseAssignment(caseId);
+    if (success) {
+      setSelectedCase(null);
       loadData();
     }
   };
 
   const handleRejectAssignment = async (caseId: string) => {
       // Revert to SENT_TO_STUDENTS
-      const updated = updateCaseStatus(caseId, CaseStatus.SENT_TO_STUDENTS);
-      if(updated) {
-          setSelectedCase(updated);
+      const success = await updateCaseStatus(caseId, CaseStatus.SENT_TO_STUDENTS);
+      if(success) {
+          setSelectedCase(null);
           loadData();
       }
   };
 
   const handleAssignStudent = async (studentId: string) => {
     if (!selectedCase) return;
-    const student = students.find(s => s.id === studentId);
-    if (!student) return;
-
-    // Direct manual assignment implies approval
-    const updated = assignCaseToStudent(selectedCase.id, studentId);
-    if (updated) {
-      const dm = formatPrivateStudentMessage(updated);
-      await sendPrivateTelegramMessage(dm, student.fullName);
-      
-      setSelectedCase(updated);
+    const success = await assignCaseToStudent(selectedCase.id, studentId);
+    if (success) {
+      setSelectedCase(null);
       loadData();
     }
   };
 
-  const handleStudentAction = (studentId: string, action: StudentStatus) => {
-    updateStudentStatus(studentId, action);
+  const handleStudentAction = async (studentId: string, action: StudentStatus) => {
+    await updateStudentStatus(studentId, action);
     loadData();
   };
 
@@ -235,7 +218,7 @@ export const AdminDashboard: React.FC = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredCases.map((c) => {
-                  const assignedStudent = students.find(s => s.id === c.assignedStudentId);
+                  const assignedStudent = students.find(s => s.id === c.assignedStudentId) || (c.assignedStudentId === 'LINKED' ? { fullName: 'طالب' } : null);
                   const isPendingApproval = c.status === CaseStatus.WAITING_ADMIN_APPROVAL;
                   return (
                     <tr key={c.id} className={`hover:bg-gray-50 ${isPendingApproval ? 'bg-purple-50' : ''}`}>
@@ -283,7 +266,6 @@ export const AdminDashboard: React.FC = () => {
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الاسم</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الرقم الجامعي</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الحالة</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الموافقات</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجراءات</th>
                 </tr>
               </thead>
@@ -299,11 +281,6 @@ export const AdminDashboard: React.FC = () => {
                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${s.status === StudentStatus.APPROVED ? 'bg-green-100 text-green-800' : ''} ${s.status === StudentStatus.PENDING ? 'bg-yellow-100 text-yellow-800' : ''} ${s.status === StudentStatus.REJECTED ? 'bg-red-100 text-red-800' : ''}`}>
                          {STUDENT_STATUS_LABELS[s.status]}
                        </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                       {s.legalConsent?.liabilityAccepted ? (
-                           <span className="flex items-center gap-1 text-green-600 text-xs font-bold"><ShieldAlert className="h-3 w-3"/> مقبول</span>
-                       ) : <span className="text-red-500 text-xs">غير مكتمل</span>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
                       {s.status === StudentStatus.PENDING && (
@@ -411,37 +388,6 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Medical History Section (Admin View) */}
-                <div className="mb-6">
-                     <h4 className="text-sm font-bold text-red-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Activity className="h-4 w-4" /> التاريخ الطبي (سري)
-                    </h4>
-                    <div className="bg-red-50 p-4 rounded-lg border border-red-100">
-                        {selectedCase.medicalHistory.length > 0 && !selectedCase.medicalHistory.includes("لا أعاني من أمراض مزمنة") ? (
-                            <ul className="list-disc list-inside text-sm text-red-800 font-medium space-y-1">
-                                {selectedCase.medicalHistory.map(m => <li key={m}>{m}</li>)}
-                            </ul>
-                        ) : (
-                            <p className="text-sm text-gray-600 flex items-center gap-2">
-                                <CheckCircle className="h-4 w-4 text-green-500" />
-                                لا توجد أمراض مزمنة مسجلة
-                            </p>
-                        )}
-                        
-                        {selectedCase.medicalNotes && (
-                            <div className="mt-3 text-sm text-gray-800 border-t border-red-200 pt-2 bg-white/50 p-2 rounded">
-                                <strong className="text-red-700 block mb-1">تفاصيل طبية / أدوية:</strong> 
-                                {selectedCase.medicalNotes}
-                            </div>
-                        )}
-
-                        <div className="mt-4 pt-2 border-t border-red-200 flex items-center justify-between text-xs text-gray-500">
-                            <span>إقرار المريض: {selectedCase.isMedicalHistoryDeclared ? '✅ تم الإقرار' : '❌ لم يتم'}</span>
-                            <span>إخلاء المسؤولية: {selectedCase.legalConsents?.medicalDisclaimerAccepted ? '✅ موافق' : '❌ غير موافق'}</span>
-                        </div>
-                    </div>
-                </div>
-
                 {/* Assignment Approval Logic */}
                 {selectedCase.status === CaseStatus.WAITING_ADMIN_APPROVAL && selectedCase.assignedStudentId && (
                     <div className="mb-6 bg-purple-50 p-4 rounded-lg border border-purple-200 shadow-inner">
@@ -450,10 +396,9 @@ export const AdminDashboard: React.FC = () => {
                              مراجعة طلب الإسناد
                         </h4>
                         <div className="text-sm text-purple-800 mb-4 bg-white p-3 rounded border border-purple-100">
-                            الطالب <strong className="text-lg">{students.find(s => s.id === selectedCase.assignedStudentId)?.fullName}</strong> 
-                            <span className="block text-xs text-gray-500 mt-1">الرقم الجامعي: {students.find(s => s.id === selectedCase.assignedStudentId)?.universityId}</span>
+                            الطالب <strong className="text-lg">{selectedCase.assignedStudent}</strong> 
                             <div className="mt-2 pt-2 border-t border-gray-100">
-                                يطلب استلام هذه الحالة. هل راجعت التاريخ الطبي وملاءمته لمستوى الطالب؟
+                                يطلب استلام هذه الحالة.
                             </div>
                         </div>
                         <div className="flex gap-3">
@@ -471,28 +416,6 @@ export const AdminDashboard: React.FC = () => {
                             </button>
                         </div>
                     </div>
-                )}
-
-                {/* Manual Assignment Section */}
-                {selectedCase.status === CaseStatus.SENT_TO_STUDENTS && (
-                <div className="mt-6 border-t pt-4">
-                  <h4 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
-                    <GraduationCap className="h-5 w-5 text-medical-600" />
-                    إسناد يدوي (تجاوز الموافقة)
-                  </h4>
-                  <div className="flex gap-2">
-                     <select 
-                        className="flex-1 border border-gray-300 rounded-md p-2 text-sm focus:ring-medical-500 focus:border-medical-500"
-                        onChange={(e) => handleAssignStudent(e.target.value)}
-                        value=""
-                     >
-                       <option value="">-- اختر طالباً للإسناد المباشر --</option>
-                       {students.filter(s => s.status === StudentStatus.APPROVED).map(s => (
-                         <option key={s.id} value={s.id}>{s.fullName} ({s.universityId})</option>
-                       ))}
-                     </select>
-                  </div>
-                </div>
                 )}
 
               </div>
