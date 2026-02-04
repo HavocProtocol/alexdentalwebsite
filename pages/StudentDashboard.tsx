@@ -22,7 +22,19 @@ export const StudentDashboard: React.FC = () => {
       navigate('/student/login');
       return;
     }
-    setStudent(JSON.parse(session));
+    try {
+      const parsed = JSON.parse(session);
+      // Fallback for legacy data with lowercase keys in local storage
+      const normalizedStudent = {
+         ...parsed,
+         fullName: parsed.fullName || parsed.fullname,
+         universityId: parsed.universityId || parsed.universityid
+      };
+      setStudent(normalizedStudent);
+    } catch (e) {
+      localStorage.removeItem('student_session');
+      navigate('/student/login');
+    }
   }, [navigate]);
 
   useEffect(() => {
@@ -34,16 +46,8 @@ export const StudentDashboard: React.FC = () => {
   const loadCases = async () => {
     if (!student) return;
     const allCases = await getCases();
-    // Filter only cases assigned to this student
-    // Note: backend should ideally filter, but we filter client side for now based on API response
-    const assigned = allCases.filter(c => c.assignedStudentId === 'LINKED' || c.status === CaseStatus.SENT_TO_STUDENTS); 
-    // Optimization: Since we don't have student ID in public case list from API for privacy in this simplified demo,
-    // we assume the API filters or we only show relevant ones. 
-    // Correction: The API returns all cases. We need to filter by cases where this student is the assignee.
-    // However, the current API I wrote sends "assignedStudentId: 'LINKED'" masking the ID.
-    // Let's rely on the frontend filtering by *Student Name* or assume the student sees open cases too?
-    // For this specific logic, I'll filter where status is NOT RECEIVED (meaning assigned/claimed) or just show all for demo simplicity
-    // Real implementation: API should accept ?studentId=...
+    // For this demo, we are showing all cases or cases that are relevant
+    // In a real scenario, we'd filter by student ID, but we want to show the list for the demo flow
     setMyCases(allCases);
   };
 
@@ -65,8 +69,8 @@ export const StudentDashboard: React.FC = () => {
   if (!student) return null;
 
   const filteredCases = myCases.filter(c => 
-    c.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.id.toLowerCase().includes(searchTerm.toLowerCase())
+    (c.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.id || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const activeCasesCount = myCases.filter(c => c.status !== CaseStatus.COMPLETED && c.status !== CaseStatus.CANCELLED).length;
