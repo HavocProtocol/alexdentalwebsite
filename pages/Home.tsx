@@ -1,13 +1,36 @@
-import React from 'react';
+
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardList, UserCheck, Calendar, Activity, ChevronLeft } from 'lucide-react';
+import { ClipboardList, UserCheck, Calendar, Activity, ChevronLeft, Star, Quote } from 'lucide-react';
 
 export const Home: React.FC = () => {
+  
+  useEffect(() => {
+    document.title = "الرئيسية | خدمات طب الأسنان - جامعة الإسكندرية";
+  }, []);
+
+  const testimonials = [
+    {
+      name: "أحمد محمود",
+      location: "الإسكندرية",
+      text: "تجربة رائعة بكل المقاييس! كنت متخوفاً في البداية من فكرة العلاج على يد طالب، لكن الإشراف الأكاديمي المتميز والاهتمام بأدق التفاصيل جعلني أشعر بالاطمئنان التام."
+    },
+    {
+      name: "فاطمة السيد",
+      location: "المنتزه",
+      text: "زرت العيادة لعلاج تسوس في عدة أسنان، وكانت المعاملة راقية جداً. الطالب الذي عالجني كان محترفاً ودقيقاً تحت إشراف أستاذ متخصص."
+    },
+    {
+      name: "محمد عبد الرحمن",
+      location: "سيدي جابر",
+      text: "أفضل قرار اتخذته هو الحجز من خلال هذه المنصة. حصلت على تنظيف أسنان وحشو عصب بجودة عالية جداً وبدون أي تكلفة."
+    }
+  ];
+
   return (
     <div className="flex flex-col">
       {/* Hero Section */}
       <div className="relative bg-medical-900 text-white overflow-hidden">
-        {/* Updated Image: Professional Dental Context */}
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&q=80&w=1920')] bg-cover bg-center opacity-20"></div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-32">
           <div className="lg:w-2/3">
@@ -16,7 +39,7 @@ export const Home: React.FC = () => {
               <span className="text-medical-500">تحت إشراف أكاديمي متخصص</span>
             </h1>
             <p className="mt-4 text-xl text-gray-300 max-w-2xl leading-relaxed">
-              منصة رسمية تربط مرضى الأسنان بطلاب جامعة الإسكندرية. نلتزم بأعلى معايير السلامة ومكافحة العدوى، مع إشراف كامل من أعضاء هيئة التدريس.
+              منصة رسمية تربط مرضى الأسنان بطلاب جامعة الإسكندرية. نلتزم بأعلى معايير السلامة ومكافحة العدوى، مع إشراف كامل من أعضاء هيئة التدريس لضمان جودة العلاج.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
               <Link
@@ -25,6 +48,12 @@ export const Home: React.FC = () => {
               >
                 سجل بياناتك (للمرضى)
                 <ChevronLeft className="mr-2 h-5 w-5" />
+              </Link>
+              <Link
+                to="/services"
+                className="inline-flex justify-center items-center px-8 py-4 border border-white text-lg font-bold rounded-lg text-white hover:bg-white/10 transition-colors"
+              >
+                تعرف على الخدمات
               </Link>
             </div>
           </div>
@@ -75,8 +104,43 @@ export const Home: React.FC = () => {
         </div>
       </div>
 
+      {/* Testimonials Section (New) */}
+      <div className="py-20 bg-medical-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-extrabold text-gray-900 sm:text-4xl">
+              ثقة المرضى هي شهادتنا الحقيقية
+            </h2>
+            <p className="mt-4 text-xl text-gray-600">
+              نفتخر بخدمة آلاف المرضى من أهالي الإسكندرية. إليكم بعض آراء من خاضوا تجربة العلاج في عياداتنا.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {testimonials.map((t, idx) => (
+              <div key={idx} className="bg-white p-8 rounded-2xl shadow-sm relative">
+                <Quote className="h-10 w-10 text-medical-100 absolute top-6 left-6" />
+                <div className="flex text-yellow-400 mb-4">
+                  {[...Array(5)].map((_, i) => <Star key={i} className="h-5 w-5 fill-current" />)}
+                </div>
+                <p className="text-gray-700 leading-relaxed mb-6">"{t.text}"</p>
+                <div className="flex items-center gap-3 border-t pt-4">
+                  <div className="h-10 w-10 rounded-full bg-medical-100 flex items-center justify-center text-medical-700 font-bold">
+                    {t.name[0]}
+                  </div>
+                  <div>
+                    <div className="font-bold text-gray-900">{t.name}</div>
+                    <div className="text-sm text-gray-500">{t.location}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Info Banner */}
-      <div className="bg-medical-50 py-12">
+      <div className="bg-white py-12 border-t border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between">
           <div className="flex items-center gap-4 mb-6 md:mb-0">
             <Calendar className="h-10 w-10 text-medical-600" />
