@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Search, Filter, Eye, X, User, Phone, MapPin, 
   Activity, CheckCircle, GraduationCap, Send,
-  UserCheck, XCircle, Calendar, ClipboardList, ShieldAlert, Trash2
+  UserCheck, XCircle, Calendar, ClipboardList, ShieldAlert, Trash2,
+  Loader2
 } from 'lucide-react';
 import { 
   getCases, updateCaseStatus, getStudents, updateStudentStatus, assignCaseToStudent, approveCaseAssignment, publishCase, deleteCase, deleteStudent
@@ -24,6 +25,7 @@ export const AdminDashboard: React.FC = () => {
   const [filteredCases, setFilteredCases] = useState<PatientCase[]>([]);
   const [selectedCase, setSelectedCase] = useState<PatientCase | null>(null);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -91,13 +93,18 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const handlePublishCase = async (id: string) => {
-    const success = await publishCase(id);
-    if (success) {
+    if (!window.confirm("هل أنت متأكد من نشر هذه الحالة للطلاب؟")) return;
+    
+    setIsPublishing(true);
+    const result = await publishCase(id);
+    setIsPublishing(false);
+    
+    if (result.success) {
       setSelectedCase(null);
       loadData();
-      alert("تم نشر الحالة للطلاب وإرسال الإشعار على تيليجرام بنجاح");
+      alert("✅ تم نشر الحالة للطلاب وإرسال الإشعار على تيليجرام بنجاح");
     } else {
-      alert("حدث خطأ أثناء النشر");
+      alert(`❌ فشل النشر: ${result.message}\n\nتأكد من إعدادات البوت وتشغيل السيرفر.`);
     }
   };
 
@@ -463,12 +470,16 @@ export const AdminDashboard: React.FC = () => {
                         <div className="flex gap-3">
                             <button 
                                 onClick={() => handlePublishCase(selectedCase.id)}
-                                className="flex-1 bg-medical-600 text-white px-4 py-2 rounded-md hover:bg-medical-700 flex items-center justify-center gap-2 shadow-sm font-bold"
+                                disabled={isPublishing}
+                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md shadow-sm font-bold text-white transition-all
+                                   ${isPublishing ? 'bg-gray-400 cursor-not-allowed' : 'bg-medical-600 hover:bg-medical-700'}`}
                             >
-                                <Send className="h-4 w-4" /> الموافقة ونشر للطلاب
+                                {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                {isPublishing ? 'جاري النشر...' : 'الموافقة ونشر للطلاب'}
                             </button>
                             <button 
                                 onClick={() => handleRejectNewRequest(selectedCase.id)}
+                                disabled={isPublishing}
                                 className="flex-1 bg-white text-red-600 border border-red-200 px-4 py-2 rounded-md hover:bg-red-50 flex items-center justify-center gap-2 shadow-sm"
                             >
                                 <XCircle className="h-4 w-4" /> رفض الطلب
