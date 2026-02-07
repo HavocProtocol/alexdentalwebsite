@@ -2,6 +2,7 @@
 import React from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { ToastContainer } from './components/Toast';
 import { Home } from './pages/Home';
 import { About } from './pages/About';
 import { Services } from './pages/Services';
@@ -61,6 +62,7 @@ function App() {
       <Layout>
         <AnimatedRoutes />
       </Layout>
+      <ToastContainer />
     </HashRouter>
   );
 }
