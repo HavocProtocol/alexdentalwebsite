@@ -69,6 +69,20 @@ export const saveCase = async (newCase: PatientCase): Promise<void> => {
   });
 };
 
+// New: Publish case to students (Send Telegram)
+export const publishCase = async (id: string): Promise<boolean> => {
+  try {
+    const res = await fetch('/api/cases/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+};
+
 export const updateCaseStatus = async (id: string, newStatus: CaseStatus): Promise<boolean> => {
   try {
     await fetch('/api/cases/update', {
@@ -77,6 +91,19 @@ export const updateCaseStatus = async (id: string, newStatus: CaseStatus): Promi
         body: JSON.stringify({ id, status: newStatus })
     });
     return true;
+  } catch (e) {
+      return false;
+  }
+};
+
+// Delete a case
+export const deleteCase = async (id: string): Promise<boolean> => {
+  try {
+      // Use query param for compatibility with serverless function routing
+      const res = await fetch(`/api/cases?id=${id}`, {
+          method: 'DELETE'
+      });
+      return res.ok;
   } catch (e) {
       return false;
   }
@@ -155,4 +182,17 @@ export const updateStudentStatus = async (studentId: string, newStatus: StudentS
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: studentId, status: newStatus })
     });
+};
+
+// Delete a student
+export const deleteStudent = async (id: string): Promise<boolean> => {
+  try {
+      // Use query param for compatibility with serverless function routing
+      const res = await fetch(`/api/students?id=${id}`, {
+          method: 'DELETE'
+      });
+      return res.ok;
+  } catch (e) {
+      return false;
+  }
 };
