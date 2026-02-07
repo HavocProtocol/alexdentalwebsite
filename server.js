@@ -67,13 +67,12 @@ db.serialize(() => {
 });
 
 // --- TELEGRAM BOT SETUP ---
-// Only initialize polling if we have a token
 let bot = null;
 if (TELEGRAM_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
     bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
     console.log("✅ Telegram Bot initialized with polling.");
 
-    // Handle "Claim Case" button clicks (Strict Logic)
+    // Handle "Claim Case" button clicks (Robust Logic)
     bot.on('callback_query', (query) => {
       const chatId = query.message.chat.id; // Group Chat ID
       const userChatId = query.from.id; // Student Private Chat ID
@@ -92,29 +91,31 @@ if (TELEGRAM_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
           }
 
           // STRICT CHECK: Case must be in 'SENT_TO_STUDENTS' state only
+          // This prevents two students from claiming the same case
           if (row.status !== 'SENT_TO_STUDENTS') {
             bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، هذه الحالة تم حجزها بالفعل من قبل طالب آخر.", show_alert: true });
             
-            // Update the message visually if it hasn't been updated yet
+            // Remove button from message to prevent further clicks
             bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
               chat_id: chatId,
               message_id: query.message.message_id
-            }).catch(() => {}); // Ignore error if already edited
+            }).catch(() => {});
             return;
           }
 
-          // 2. Immediate Assignment (Lock the case)
+          // 2. Atomic Update (Lock the case)
+          // We assume 'IN_TREATMENT' or 'APPROVED_FOR_TREATMENT' means claimed
           db.run("UPDATE cases SET status = ?, assignedStudent = ?, assignedStudentChatId = ? WHERE id = ?", 
-            ['IN_TREATMENT', studentUsername, userChatId, caseId], 
+            ['APPROVED_FOR_TREATMENT', studentUsername, userChatId, caseId], 
             (updateErr) => {
               if (updateErr) {
-                bot.answerCallbackQuery(query.id, { text: "حدث خطأ أثناء الحجز." });
+                bot.answerCallbackQuery(query.id, { text: "حدث خطأ في قاعدة البيانات. حاول مرة أخرى." });
                 return;
               }
 
-              // 3. Notify User (Popup)
+              // 3. Notify Student (Popup)
               bot.answerCallbackQuery(query.id, { 
-                text: "✅ تم استلام الحالة بنجاح! أنت المسؤول عنها الآن.", 
+                text: "✅ تم استلام الحالة بنجاح! راجع الرسائل الخاصة للتفاصيل.", 
                 show_alert: true 
               });
 
@@ -126,14 +127,14 @@ if (TELEGRAM_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
                 chat_id: chatId,
                 message_id: query.message.message_id,
                 parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [] } // Remove buttons permanently
+                reply_markup: { inline_keyboard: [] } // Remove buttons
               });
               
-              // 5. Send Private DM with FULL DETAILS (Sensitive Data)
+              // 5. Send Private DM with SENSITIVE DETAILS
               const privateMessage = `
 🎉 *تهانينا! تم إسناد الحالة لك.*
 
-📝 *تفاصيل المريض الكاملة:*
+📝 *تفاصيل المريض:*
 🆔 رقم الملف: \`${row.id}\`
 👤 الاسم: *${row.fullName}*
 📞 الهاتف: \`${row.phone}\`
@@ -145,17 +146,21 @@ ${row.medicalHistory || "لا توجد أمراض مزمنة معلنة"}
 💬 *ملاحظات:*
 ${row.notes || "لا يوجد"}
 
-📌 *تعليمات:*
+📌 *تعليمات هامة:*
 1. تواصل مع المريض فوراً لتحديد الموعد.
 2. تأكد من أخذ تاريخ مرضي مفصل في أول زيارة.
-3. التزم بمعايير مكافحة العدوى.
+3. أنت المسؤول قانونياً وأكاديمياً عن هذه الحالة أمام المشرف.
 
 بالتوفيق يا دكتور! 🦷
               `.trim();
 
               bot.sendMessage(userChatId, privateMessage, { parse_mode: 'Markdown' })
+                .then(() => {
+                   console.log(`Sent DM to ${studentUsername} (${userChatId})`);
+                })
                 .catch((e) => {
-                   console.error("Failed to DM student:", e.message);
+                   console.error(`Failed to DM student ${studentUsername}:`, e.message);
+                   bot.sendMessage(chatId, `⚠️ تنبيه لـ ${studentUsername}: لم نتمكن من إرسال تفاصيل المريض لك. تأكد من أنك بدأت المحادثة مع البوت @${process.env.BOT_USERNAME || 'bot'}`);
                 });
             }
           );
@@ -164,7 +169,7 @@ ${row.notes || "لا يوجد"}
     });
 
     bot.on('polling_error', (error) => {
-       console.error("Telegram Polling Error:", error.code);  // E.g. ETELEGRAM
+       console.error("Telegram Polling Error:", error.code); 
     });
 } else {
     console.log("❌ Telegram Bot NOT initialized (Missing Token).");
@@ -175,7 +180,6 @@ ${row.notes || "لا يوجد"}
 // Submit a new case (Patient Side)
 app.post('/api/submit', (req, res) => {
   const data = req.body;
-  
   const stmt = db.prepare(`INSERT INTO cases (id, fullName, phone, age, gender, district, problem, medicalHistory, notes, submissionDate, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECEIVED')`);
   
   const medicalHistoryStr = data.medicalHistory ? data.medicalHistory.join(', ') : '';
@@ -195,7 +199,7 @@ app.post('/api/submit', (req, res) => {
     function(err) {
       if (err) {
         console.error(err);
-        return res.status(500).json({ success: false });
+        return res.status(500).json({ success: false, error: "Database error" });
       }
       res.json({ success: true, id: data.id });
     }
@@ -203,22 +207,22 @@ app.post('/api/submit', (req, res) => {
   stmt.finalize();
 });
 
-// Publish Case (Admin Side) - This triggers the Telegram Message
+// Publish Case (Admin Side) - Triggers Telegram
 app.post('/api/cases/publish', (req, res) => {
   const { id } = req.body;
 
   if (!bot) {
-      return res.status(500).json({ error: "Telegram Bot is not configured on server." });
+      return res.status(500).json({ error: "خطأ: بوت التيليجرام غير مفعل على السيرفر." });
   }
   
   db.get("SELECT * FROM cases WHERE id = ?", [id], (err, row) => {
     if (err || !row) {
-      return res.status(404).json({ error: "Case not found" });
+      return res.status(404).json({ error: "الحالة غير موجودة" });
     }
 
-    // 1. Update Status
+    // 1. Update Status first
     db.run("UPDATE cases SET status = 'SENT_TO_STUDENTS' WHERE id = ?", [id], (updateErr) => {
-      if (updateErr) return res.status(500).json({ error: "DB Update Failed" });
+      if (updateErr) return res.status(500).json({ error: "فشل تحديث قاعدة البيانات" });
 
       // 2. Format Telegram Message
       const problemsArr = row.problem ? row.problem.split(', ') : [];
@@ -237,8 +241,6 @@ ${problemsArr.map(p => `- ${p}`).join('\n')}
 👇 اضغط على الزر أدناه لاستلام الحالة فوراً
       `.trim();
 
-      console.log(`Sending message to Group ID: ${TELEGRAM_GROUP_ID}`);
-
       // 3. Send to Group with Claim Button
       bot.sendMessage(TELEGRAM_GROUP_ID, message, {
         parse_mode: 'Markdown',
@@ -247,13 +249,11 @@ ${problemsArr.map(p => `- ${p}`).join('\n')}
             [{ text: "✅ استلام الحالة (حجز فوري)", callback_data: `claim_${row.id}` }]
           ]
         }
-      }).then((sentMsg) => {
-        console.log("✅ Message sent successfully:", sentMsg.message_id);
+      }).then(() => {
         res.json({ success: true });
       }).catch((tgErr) => {
-        console.error("❌ Telegram Error:", tgErr.message);
-        // We return success=false to UI so admin knows it failed
-        res.status(500).json({ error: "Telegram Send Failed: " + tgErr.message });
+        console.error("Telegram Error:", tgErr.message);
+        res.status(500).json({ error: "فشل الإرسال لتيليجرام: " + tgErr.message });
       });
     });
   });
@@ -268,8 +268,8 @@ app.get('/api/cases', (req, res) => {
 });
 
 // Delete Case
-app.delete('/api/cases/:id', (req, res) => {
-  const { id } = req.params;
+app.delete('/api/cases', (req, res) => {
+  const { id } = req.query; // Use query for DELETE
   db.run("DELETE FROM cases WHERE id = ?", [id], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
@@ -293,9 +293,8 @@ app.get('/api/students', (req, res) => {
   });
 });
 
-// Delete Student
-app.delete('/api/students/:id', (req, res) => {
-  const { id } = req.params;
+app.delete('/api/students', (req, res) => {
+  const { id } = req.query;
   db.run("DELETE FROM students WHERE id = ?", [id], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
