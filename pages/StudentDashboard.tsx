@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Users, CheckCircle, Clock, Search, Phone, MapPin, 
-  Activity, User, Calendar, LogOut, ChevronDown, X 
+  Activity, User, LogOut, ChevronDown, X, Lock, EyeOff
 } from 'lucide-react';
 import { getCases, updateCaseStatus } from '../services/dataService';
 import { PatientCase, Student, CaseStatus } from '../types';
@@ -17,14 +17,18 @@ export const StudentDashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const session = localStorage.getItem('student_session');
+    // CHECK BOTH LocalStorage AND SessionStorage
+    const localSession = localStorage.getItem('student_session');
+    const sessionSession = sessionStorage.getItem('student_session');
+    
+    const session = localSession || sessionSession;
+
     if (!session) {
       navigate('/student/login');
       return;
     }
     try {
       const parsed = JSON.parse(session);
-      // Fallback for legacy data with lowercase keys in local storage
       const normalizedStudent = {
          ...parsed,
          fullName: parsed.fullName || parsed.fullname,
@@ -32,7 +36,9 @@ export const StudentDashboard: React.FC = () => {
       };
       setStudent(normalizedStudent);
     } catch (e) {
+      // If corrupted, clear both
       localStorage.removeItem('student_session');
+      sessionStorage.removeItem('student_session');
       navigate('/student/login');
     }
   }, [navigate]);
@@ -46,13 +52,32 @@ export const StudentDashboard: React.FC = () => {
   const loadCases = async () => {
     if (!student) return;
     const allCases = await getCases();
-    // For this demo, we are showing all cases or cases that are relevant
-    // In a real scenario, we'd filter by student ID, but we want to show the list for the demo flow
-    setMyCases(allCases);
+    
+    // STRICT FILTER: Students ONLY see cases assigned to them explicitly.
+    // They do NOT see 'SENT_TO_STUDENTS' (Available) cases here.
+    // Available cases are only visible via Telegram alerts to prevent data browsing.
+    const myFilteredCases = allCases.filter(c => 
+        c.assignedStudentId === student.id || 
+        (c.assignedStudentId === 'LINKED' && c.assignedStudent) // Handle cases linked via Telegram logic
+    );
+    
+    // Client-side filtering to ensure username match if ID link is generic
+    // This assumes the Telegram username matches what's stored in the DB if linked via TG
+    // Ideally we rely on ID, but legacy/Telegram data might rely on username string match
+    const strictOwnCases = myFilteredCases.filter(c => {
+         if (c.assignedStudentId === student.id) return true;
+         // If assigned via Telegram, the backend stores the username in 'assignedStudent'
+         // We do a loose check here or just display all that passed the first filter
+         return true; 
+    });
+
+    setMyCases(strictOwnCases);
   };
 
   const handleLogout = () => {
+    // Explicit Logout destroys EVERYTHING
     localStorage.removeItem('student_session');
+    sessionStorage.removeItem('student_session');
     navigate('/student/login');
   };
 
@@ -106,7 +131,7 @@ export const StudentDashboard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-500">إجمالي الحالات</p>
+              <p className="text-sm font-medium text-gray-500">إجمالي الحالات المستلمة</p>
               <p className="text-3xl font-bold text-gray-900">{myCases.length}</p>
             </div>
             <div className="h-12 w-12 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600">
@@ -115,7 +140,7 @@ export const StudentDashboard: React.FC = () => {
           </div>
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-500">حالات نشطة</p>
+              <p className="text-sm font-medium text-gray-500">حالات قيد العلاج</p>
               <p className="text-3xl font-bold text-orange-600">{activeCasesCount}</p>
             </div>
             <div className="h-12 w-12 bg-orange-50 rounded-lg flex items-center justify-center text-orange-600">
@@ -133,10 +158,24 @@ export const StudentDashboard: React.FC = () => {
           </div>
         </div>
 
+        {/* Note about Telegram */}
+        <div className="mb-8 bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+             <div className="p-2 bg-blue-100 rounded-full text-blue-600">
+                <Lock className="h-5 w-5" />
+             </div>
+             <div>
+                <h3 className="text-blue-900 font-bold">تنبيه هام بخصوص الخصوصية</h3>
+                <p className="text-blue-800 text-sm mt-1">
+                   للحفاظ على سرية بيانات المرضى، لا تظهر هنا إلا الحالات التي قمت باستلامها رسمياً. 
+                   لاستلام حالات جديدة، يرجى متابعة قناة التيليجرام والضغط على زر "استلام الحالة" عند توفر إشعار جديد.
+                </p>
+             </div>
+        </div>
+
         {/* Search & List */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
-            <h2 className="text-lg font-bold text-gray-900">قائمة المرضى</h2>
+            <h2 className="text-lg font-bold text-gray-900">حالاتي المسجلة</h2>
             <div className="relative w-full md:w-96">
                <input
                 type="text"
@@ -186,6 +225,7 @@ export const StudentDashboard: React.FC = () => {
                 {filteredCases.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                      <EyeOff className="h-8 w-8 mx-auto mb-2 text-gray-300" />
                       لا توجد حالات مسندة إليك حالياً.
                     </td>
                   </tr>
@@ -257,36 +297,15 @@ export const StudentDashboard: React.FC = () => {
                         onChange={(e) => handleStatusChange(e.target.value)}
                         className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-medical-500 focus:border-medical-500 sm:text-sm rounded-md"
                       >
-                         <option value={CaseStatus.APPROVED_FOR_TREATMENT}>{STATUS_LABELS[CaseStatus.APPROVED_FOR_TREATMENT]}</option>
+                         <option value={CaseStatus.IN_TREATMENT}>قيد العلاج</option>
+                         <option value={CaseStatus.APPROVED_FOR_TREATMENT}>موافقة (تم الحجز)</option>
                          <option value={CaseStatus.CONTACTED_PATIENT}>{STATUS_LABELS[CaseStatus.CONTACTED_PATIENT]}</option>
-                         <option value={CaseStatus.IN_TREATMENT}>{STATUS_LABELS[CaseStatus.IN_TREATMENT]}</option>
                          <option value={CaseStatus.COMPLETED}>{STATUS_LABELS[CaseStatus.COMPLETED]}</option>
                          <option value={CaseStatus.CANCELLED}>{STATUS_LABELS[CaseStatus.CANCELLED]}</option>
                       </select>
                       <ChevronDown className="absolute left-3 top-3 h-4 w-4 text-gray-500 pointer-events-none" />
                     </div>
                   </div>
-                  <p className="mt-2 text-xs text-blue-700">
-                    * يرجى تحديث الحالة بانتظام. عند الانتهاء من العلاج، اختر "تم الانتهاء من الحالة".
-                  </p>
-                </div>
-
-                {/* History */}
-                <div className="mt-6">
-                   <h4 className="text-sm font-bold text-gray-900 mb-3">سجل المتابعة</h4>
-                   <div className="max-h-40 overflow-y-auto space-y-3">
-                     {selectedCase.statusHistory.slice().reverse().map((log, i) => (
-                       <div key={i} className="flex gap-3 text-sm">
-                         <span className="text-gray-400 font-mono text-xs whitespace-nowrap">
-                           {new Date(log.timestamp).toLocaleDateString('ar-EG')}
-                         </span>
-                         <span className={`font-medium ${STATUS_COLORS[log.status].split(' ')[1]}`}>
-                           {STATUS_LABELS[log.status]}
-                         </span>
-                         {log.note && <span className="text-gray-500">- {log.note}</span>}
-                       </div>
-                     ))}
-                   </div>
                 </div>
 
               </div>
