@@ -1,18 +1,18 @@
 
 import React, { useEffect } from 'react';
-import { MapPin, Clock, Phone, AlertTriangle } from 'lucide-react';
+import { MapPin, Clock, Phone, AlertTriangle, Mail } from 'lucide-react';
 
 export const Contact: React.FC = () => {
   useEffect(() => {
-    document.title = "تواصل معنا | عيادة طب الأسنان التعليمية";
+    document.title = "اتصل بنا | عيادة طب الأسنان التعليمية";
   }, []);
 
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="bg-medical-900 text-white py-16">
         <div className="max-w-7xl mx-auto px-4 text-center">
-          <h1 className="text-4xl font-extrabold mb-4">نحن هنا لخدمتك</h1>
-          <p className="text-xl text-medical-100">بيانات التواصل ومواعيد العمل</p>
+          <h1 className="text-4xl font-extrabold mb-4">اتصل بنا</h1>
+          <p className="text-xl text-medical-100">نحن هنا للإجابة على استفساراتكم</p>
         </div>
       </div>
 
@@ -21,16 +21,27 @@ export const Contact: React.FC = () => {
             
             {/* Info Cards */}
             <div className="space-y-6">
+                
+                {/* Phone */}
                 <div className="bg-white p-6 rounded-xl shadow-sm flex items-start gap-4">
                     <div className="bg-medical-50 p-3 rounded-full">
-                        <MapPin className="h-6 w-6 text-medical-600" />
+                        <Phone className="h-6 w-6 text-medical-600" />
                     </div>
                     <div>
-                        <h3 className="font-bold text-gray-900 text-lg mb-1">العنوان</h3>
-                        <p className="text-gray-600">
-                            كلية طب الأسنان، جامعة الإسكندرية<br/>
-                            شارع شامبليون، الأزاريطة، الإسكندرية
-                        </p>
+                        <h3 className="font-bold text-gray-900 text-lg mb-1">الهاتف</h3>
+                        <p className="text-gray-600 dir-ltr text-right">01000000000</p>
+                        <p className="text-xs text-orange-500 mt-1 font-medium">(الرقم قيد التفعيل - خدمة العملاء قريباً)</p>
+                    </div>
+                </div>
+
+                {/* Email */}
+                <div className="bg-white p-6 rounded-xl shadow-sm flex items-start gap-4">
+                    <div className="bg-medical-50 p-3 rounded-full">
+                        <Mail className="h-6 w-6 text-medical-600" />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-gray-900 text-lg mb-1">البريد الإلكتروني</h3>
+                        <p className="text-gray-600 font-sans">alexdentalcare.demo@gmail.com</p>
                     </div>
                 </div>
 
@@ -67,7 +78,7 @@ export const Contact: React.FC = () => {
                     style={{border:0, borderRadius: '0.75rem', minHeight: '350px'}} 
                     allowFullScreen={true} 
                     loading="lazy"
-                    title="Faculty Location"
+                    title="Clinic Location"
                 ></iframe>
             </div>
         </div>
