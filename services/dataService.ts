@@ -53,6 +53,7 @@ const mapDBStudentToFrontend = (dbStudent: any): Student => {
 export const getCases = async (): Promise<PatientCase[]> => {
   try {
     const res = await fetch('/api/cases');
+    if (!res.ok) return [];
     const data = await res.json();
     return (data.cases || []).map(mapDBCaseToFrontend);
   } catch (error) {
@@ -69,17 +70,28 @@ export const saveCase = async (newCase: PatientCase): Promise<void> => {
   });
 };
 
-// New: Publish case to students (Send Telegram)
-export const publishCase = async (id: string): Promise<boolean> => {
+// New: Publish case to students (Send Telegram) - RETURNS OBJECT NOW
+export const publishCase = async (id: string): Promise<{ success: boolean; message?: string }> => {
   try {
     const res = await fetch('/api/cases/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
     });
-    return res.ok;
+    
+    if (res.ok) {
+        return { success: true };
+    }
+    
+    // Attempt to parse error message from server
+    try {
+        const errorData = await res.json();
+        return { success: false, message: errorData.error || "خطأ غير معروف في الخادم" };
+    } catch {
+        return { success: false, message: `خطأ في الاتصال: ${res.status}` };
+    }
   } catch (e) {
-    return false;
+    return { success: false, message: "فشل الاتصال بالخادم (هل السيرفر يعمل؟)" };
   }
 };
 
@@ -136,6 +148,7 @@ export const generateCaseId = (): string => {
 export const getStudents = async (): Promise<Student[]> => {
     try {
         const res = await fetch('/api/students');
+        if (!res.ok) return [];
         const data = await res.json();
         return (data.students || []).map(mapDBStudentToFrontend);
     } catch (error) {
