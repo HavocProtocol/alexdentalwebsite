@@ -6,7 +6,7 @@ import { ClipboardList, UserCheck, Calendar, Activity, ChevronLeft, Star, Quote 
 export const Home: React.FC = () => {
   
   useEffect(() => {
-    document.title = "الرئيسية | خدمات طب الأسنان - جامعة الإسكندرية";
+    document.title = "الرئيسية | خدمات طب الأسنان المتكاملة";
   }, []);
 
   const testimonials = [
@@ -39,7 +39,7 @@ export const Home: React.FC = () => {
               <span className="text-medical-500">تحت إشراف أكاديمي متخصص</span>
             </h1>
             <p className="mt-4 text-xl text-gray-300 max-w-2xl leading-relaxed">
-              منصة رسمية تربط مرضى الأسنان بطلاب جامعة الإسكندرية. نلتزم بأعلى معايير السلامة ومكافحة العدوى، مع إشراف كامل من أعضاء هيئة التدريس لضمان جودة العلاج.
+              منصة رسمية تربط مرضى الأسنان بطلاب السنوات النهائية. نلتزم بأعلى معايير السلامة ومكافحة العدوى، مع إشراف كامل من أعضاء هيئة التدريس لضمان جودة العلاج.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
               <Link
@@ -97,7 +97,7 @@ export const Home: React.FC = () => {
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-4">3. العلاج الآمن</h3>
               <p className="text-gray-600">
-                يتم العلاج داخل عيادات الكلية المجهزة بأحدث وسائل التعقيم وتحت إشراف الأساتذة.
+                يتم العلاج داخل العيادات التعليمية المجهزة بأحدث وسائل التعقيم وتحت إشراف الأساتذة.
               </p>
             </div>
           </div>
