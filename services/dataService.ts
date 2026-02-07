@@ -1,6 +1,31 @@
 
 import { PatientCase, CaseStatus, Student, StudentStatus } from '../types';
 
+// Global notification dispatcher
+const notify = (type: 'success' | 'error', message: string) => {
+  window.dispatchEvent(new CustomEvent('app-notification', { detail: { type, message } }));
+};
+
+// Wrapper for Fetch to handle errors globally
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  try {
+    const res = await fetch(url, options);
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.error || data.message || 'حدث خطأ في الخادم');
+    }
+    return data;
+  } catch (error: any) {
+    console.error(`API Error (${url}):`, error);
+    // Don't notify for 404s if handled locally, but generally notify for failures
+    if (!url.includes('/api/cases') || options?.method !== 'GET') {
+       notify('error', error.message || 'فشل الاتصال بالخادم. يرجى التحقق من الإنترنت.');
+    }
+    throw error;
+  }
+}
+
 // Helper to ensure we always work with arrays
 const ensureArray = (val: any): string[] => {
   if (!val) return [];
@@ -20,12 +45,11 @@ const mapDBCaseToFrontend = (dbCase: any): PatientCase => {
     age: dbCase.age,
     gender: dbCase.gender,
     district: dbCase.district,
-    // Prioritize keys that are likely arrays (from backend processing) over raw DB strings
     problems: ensureArray(dbCase.problems || dbCase.problem),
     medicalHistory: ensureArray(dbCase.medicalHistory || dbCase.medicalhistory), 
     medicalNotes: dbCase.notes || dbCase.medicalNotes || '', 
     additionalNotes: dbCase.notes || dbCase.additionalNotes || '',
-    isMedicalHistoryDeclared: true, // Assumed true if saved
+    isMedicalHistoryDeclared: true, 
     status: dbCase.status,
     submissionDate: dbCase.submissiondate || dbCase.submissionDate,
     assignedStudentId: dbCase.assignedStudentId || dbCase.assignedstudentid || (dbCase.assignedstudentchatid ? 'LINKED' : null),
@@ -63,79 +87,61 @@ const mapDBStudentToFrontend = (dbStudent: any): Student => {
 
 export const getCases = async (): Promise<PatientCase[]> => {
   try {
-    const res = await fetch('/api/cases');
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data: { cases: any[] } = await request('/api/cases');
     return (data.cases || []).map(mapDBCaseToFrontend);
   } catch (error) {
-    console.error("Failed to fetch cases", error);
     return [];
   }
 };
 
 export const saveCase = async (newCase: PatientCase): Promise<void> => {
-  await fetch('/api/submit', {
+  await request('/api/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(newCase)
   });
 };
 
-// New: Publish case to students (Send Telegram) - RETURNS OBJECT NOW
 export const publishCase = async (id: string): Promise<{ success: boolean; message?: string }> => {
   try {
-    const res = await fetch('/api/cases/publish', {
+    await request('/api/cases/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
     });
-    
-    if (res.ok) {
-        return { success: true };
-    }
-    
-    // Attempt to parse error message from server
-    try {
-        const errorData = await res.json();
-        return { success: false, message: errorData.error || "خطأ غير معروف في الخادم" };
-    } catch {
-        return { success: false, message: `خطأ في الاتصال: ${res.status}` };
-    }
-  } catch (e) {
-    return { success: false, message: "فشل الاتصال بالخادم (هل السيرفر يعمل؟)" };
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, message: e.message };
   }
 };
 
 export const updateCaseStatus = async (id: string, newStatus: CaseStatus): Promise<boolean> => {
   try {
-    await fetch('/api/cases/update', {
+    await request('/api/cases/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: newStatus })
     });
+    notify('success', 'تم تحديث حالة المريض بنجاح');
     return true;
   } catch (e) {
       return false;
   }
 };
 
-// Delete a case
 export const deleteCase = async (id: string): Promise<boolean> => {
   try {
-      // Use query param for compatibility with serverless function routing
-      const res = await fetch(`/api/cases?id=${id}`, {
-          method: 'DELETE'
-      });
-      return res.ok;
+      await request(`/api/cases?id=${id}`, { method: 'DELETE' });
+      notify('success', 'تم حذف الحالة بنجاح');
+      return true;
   } catch (e) {
       return false;
   }
 };
 
-// Admin approves the assignment
 export const approveCaseAssignment = async (caseId: string): Promise<boolean> => {
     try {
-        await fetch('/api/approve-assignment', {
+        await request('/api/approve-assignment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ caseId })
@@ -158,9 +164,7 @@ export const generateCaseId = (): string => {
 
 export const getStudents = async (): Promise<Student[]> => {
     try {
-        const res = await fetch('/api/students');
-        if (!res.ok) return [];
-        const data = await res.json();
+        const data: { students: any[] } = await request('/api/students');
         return (data.students || []).map(mapDBStudentToFrontend);
     } catch (error) {
         return [];
@@ -169,53 +173,48 @@ export const getStudents = async (): Promise<Student[]> => {
 
 export const registerStudent = async (studentData: Omit<Student, 'id' | 'status' | 'registrationDate'>): Promise<{ success: boolean, message: string }> => {
     try {
-        const res = await fetch('/api/student/register', {
+        await request('/api/student/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(studentData)
         });
-        const data = await res.json();
-        if (data.success) return { success: true, message: 'تم التسجيل بنجاح' };
-        return { success: false, message: data.error || 'فشل التسجيل' };
-    } catch (e) {
-        return { success: false, message: 'خطأ في الاتصال' };
+        return { success: true, message: 'تم التسجيل بنجاح' };
+    } catch (e: any) {
+        return { success: false, message: e.message };
     }
 };
 
 export const loginStudent = async (email: string, password: string): Promise<{ success: boolean, student?: Student, message?: string }> => {
     try {
-        const res = await fetch('/api/student/login', {
+        const data: any = await request('/api/student/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
-        const data = await res.json();
+        
         if (data.success && data.student) {
-            // Map the single student object before returning
             data.student = mapDBStudentToFrontend(data.student);
         }
         return data;
-    } catch (e) {
-        return { success: false, message: 'خطأ في الاتصال' };
+    } catch (e: any) {
+        return { success: false, message: e.message };
     }
 };
 
 export const updateStudentStatus = async (studentId: string, newStatus: StudentStatus): Promise<void> => {
-    await fetch('/api/students/update', {
+    await request('/api/students/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: studentId, status: newStatus })
     });
+    notify('success', 'تم تحديث حالة الطالب');
 };
 
-// Delete a student
 export const deleteStudent = async (id: string): Promise<boolean> => {
   try {
-      // Use query param for compatibility with serverless function routing
-      const res = await fetch(`/api/students?id=${id}`, {
-          method: 'DELETE'
-      });
-      return res.ok;
+      await request(`/api/students?id=${id}`, { method: 'DELETE' });
+      notify('success', 'تم حذف حساب الطالب');
+      return true;
   } catch (e) {
       return false;
   }
