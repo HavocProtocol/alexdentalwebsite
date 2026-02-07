@@ -22,6 +22,11 @@ const PORT = process.env.PORT || 3001;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 const TELEGRAM_GROUP_ID = process.env.GROUP_ID || 'YOUR_GROUP_ID_HERE'; // e.g., -100123456789
 
+// Check Config
+if (TELEGRAM_TOKEN === 'YOUR_BOT_TOKEN_HERE' || TELEGRAM_GROUP_ID === 'YOUR_GROUP_ID_HERE') {
+  console.warn("⚠️  WARNING: Telegram Bot Token or Group ID is not set. Telegram features will fail.");
+}
+
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(bodyParser.json());
@@ -62,69 +67,70 @@ db.serialize(() => {
 });
 
 // --- TELEGRAM BOT SETUP ---
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+// Only initialize polling if we have a token
+let bot = null;
+if (TELEGRAM_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
+    bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+    console.log("✅ Telegram Bot initialized with polling.");
 
-// Handle "Claim Case" button clicks (Strict Logic)
-bot.on('callback_query', (query) => {
-  const chatId = query.message.chat.id; // Group Chat ID
-  const userChatId = query.from.id; // Student Private Chat ID
-  const studentName = query.from.first_name + (query.from.last_name ? ' ' + query.from.last_name : '');
-  const studentUsername = query.from.username ? `@${query.from.username}` : studentName;
-  const data = query.data;
+    // Handle "Claim Case" button clicks (Strict Logic)
+    bot.on('callback_query', (query) => {
+      const chatId = query.message.chat.id; // Group Chat ID
+      const userChatId = query.from.id; // Student Private Chat ID
+      const studentName = query.from.first_name + (query.from.last_name ? ' ' + query.from.last_name : '');
+      const studentUsername = query.from.username ? `@${query.from.username}` : studentName;
+      const data = query.data;
 
-  if (data.startsWith('claim_')) {
-    const caseId = data.split('_')[1];
+      if (data.startsWith('claim_')) {
+        const caseId = data.split('_')[1];
 
-    // 1. Transaction-like check to prevent race conditions
-    db.get("SELECT * FROM cases WHERE id = ?", [caseId], (err, row) => {
-      if (err || !row) {
-        bot.answerCallbackQuery(query.id, { text: "❌ حدث خطأ: الحالة غير موجودة في النظام." });
-        return;
-      }
-
-      // STRICT CHECK: Case must be in 'SENT_TO_STUDENTS' state only
-      if (row.status !== 'SENT_TO_STUDENTS') {
-        bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، هذه الحالة تم حجزها بالفعل من قبل طالب آخر.", show_alert: true });
-        
-        // Update the message visually if it hasn't been updated yet
-        bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-          chat_id: chatId,
-          message_id: query.message.message_id
-        }).catch(() => {}); // Ignore error if already edited
-        return;
-      }
-
-      // 2. Immediate Assignment (Lock the case)
-      // We assume the student is valid. In a real scenario, we'd check the 'students' table here.
-      // Update status to IN_TREATMENT immediately (skipping admin approval step as per new prompt)
-      db.run("UPDATE cases SET status = ?, assignedStudent = ?, assignedStudentChatId = ? WHERE id = ?", 
-        ['IN_TREATMENT', studentUsername, userChatId, caseId], 
-        (updateErr) => {
-          if (updateErr) {
-            bot.answerCallbackQuery(query.id, { text: "حدث خطأ أثناء الحجز." });
+        // 1. Transaction-like check to prevent race conditions
+        db.get("SELECT * FROM cases WHERE id = ?", [caseId], (err, row) => {
+          if (err || !row) {
+            bot.answerCallbackQuery(query.id, { text: "❌ حدث خطأ: الحالة غير موجودة في النظام." });
             return;
           }
 
-          // 3. Notify User (Popup)
-          bot.answerCallbackQuery(query.id, { 
-            text: "✅ تم استلام الحالة بنجاح! أنت المسؤول عنها الآن.", 
-            show_alert: true 
-          });
+          // STRICT CHECK: Case must be in 'SENT_TO_STUDENTS' state only
+          if (row.status !== 'SENT_TO_STUDENTS') {
+            bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، هذه الحالة تم حجزها بالفعل من قبل طالب آخر.", show_alert: true });
+            
+            // Update the message visually if it hasn't been updated yet
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+              chat_id: chatId,
+              message_id: query.message.message_id
+            }).catch(() => {}); // Ignore error if already edited
+            return;
+          }
 
-          // 4. Update Group Message (Remove Button & Show Owner)
-          const originalText = query.message.text;
-          // Strip the last lines (instructions) and append owner info
-          const cleanText = originalText.split('👇')[0].trim(); 
-          
-          bot.editMessageText(`${cleanText}\n\n🔒 *تم الحجز بواسطة:* ${studentUsername}`, {
-            chat_id: chatId,
-            message_id: query.message.message_id,
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [] } // Remove buttons permanently
-          });
-          
-          // 5. Send Private DM with FULL DETAILS (Sensitive Data)
-          const privateMessage = `
+          // 2. Immediate Assignment (Lock the case)
+          db.run("UPDATE cases SET status = ?, assignedStudent = ?, assignedStudentChatId = ? WHERE id = ?", 
+            ['IN_TREATMENT', studentUsername, userChatId, caseId], 
+            (updateErr) => {
+              if (updateErr) {
+                bot.answerCallbackQuery(query.id, { text: "حدث خطأ أثناء الحجز." });
+                return;
+              }
+
+              // 3. Notify User (Popup)
+              bot.answerCallbackQuery(query.id, { 
+                text: "✅ تم استلام الحالة بنجاح! أنت المسؤول عنها الآن.", 
+                show_alert: true 
+              });
+
+              // 4. Update Group Message (Remove Button & Show Owner)
+              const originalText = query.message.text;
+              const cleanText = originalText.split('👇')[0].trim(); 
+              
+              bot.editMessageText(`${cleanText}\n\n🔒 *تم الحجز بواسطة:* ${studentUsername}`, {
+                chat_id: chatId,
+                message_id: query.message.message_id,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [] } // Remove buttons permanently
+              });
+              
+              // 5. Send Private DM with FULL DETAILS (Sensitive Data)
+              const privateMessage = `
 🎉 *تهانينا! تم إسناد الحالة لك.*
 
 📝 *تفاصيل المريض الكاملة:*
@@ -145,18 +151,24 @@ ${row.notes || "لا يوجد"}
 3. التزم بمعايير مكافحة العدوى.
 
 بالتوفيق يا دكتور! 🦷
-          `.trim();
+              `.trim();
 
-          bot.sendMessage(userChatId, privateMessage, { parse_mode: 'Markdown' })
-            .catch((e) => {
-               console.error("Failed to DM student:", e.message);
-               // Fallback: Could assume student hasn't started bot
-            });
-        }
-      );
+              bot.sendMessage(userChatId, privateMessage, { parse_mode: 'Markdown' })
+                .catch((e) => {
+                   console.error("Failed to DM student:", e.message);
+                });
+            }
+          );
+        });
+      }
     });
-  }
-});
+
+    bot.on('polling_error', (error) => {
+       console.error("Telegram Polling Error:", error.code);  // E.g. ETELEGRAM
+    });
+} else {
+    console.log("❌ Telegram Bot NOT initialized (Missing Token).");
+}
 
 // --- API ENDPOINTS ---
 
@@ -185,12 +197,6 @@ app.post('/api/submit', (req, res) => {
         console.error(err);
         return res.status(500).json({ success: false });
       }
-
-      // NOTE: Do NOT send to Telegram Group yet.
-      // Admin must approve first via Dashboard.
-      
-      // Optional: Notify Admin Private Channel (not implemented here, keeping it simple)
-
       res.json({ success: true, id: data.id });
     }
   );
@@ -200,6 +206,10 @@ app.post('/api/submit', (req, res) => {
 // Publish Case (Admin Side) - This triggers the Telegram Message
 app.post('/api/cases/publish', (req, res) => {
   const { id } = req.body;
+
+  if (!bot) {
+      return res.status(500).json({ error: "Telegram Bot is not configured on server." });
+  }
   
   db.get("SELECT * FROM cases WHERE id = ?", [id], (err, row) => {
     if (err || !row) {
@@ -210,7 +220,7 @@ app.post('/api/cases/publish', (req, res) => {
     db.run("UPDATE cases SET status = 'SENT_TO_STUDENTS' WHERE id = ?", [id], (updateErr) => {
       if (updateErr) return res.status(500).json({ error: "DB Update Failed" });
 
-      // 2. Format Telegram Message (SANITIZED - NO PHONE/NAME)
+      // 2. Format Telegram Message
       const problemsArr = row.problem ? row.problem.split(', ') : [];
       const message = `
 📢 *حالة جديدة متاحة للحجز* 🦷
@@ -227,6 +237,8 @@ ${problemsArr.map(p => `- ${p}`).join('\n')}
 👇 اضغط على الزر أدناه لاستلام الحالة فوراً
       `.trim();
 
+      console.log(`Sending message to Group ID: ${TELEGRAM_GROUP_ID}`);
+
       // 3. Send to Group with Claim Button
       bot.sendMessage(TELEGRAM_GROUP_ID, message, {
         parse_mode: 'Markdown',
@@ -235,11 +247,13 @@ ${problemsArr.map(p => `- ${p}`).join('\n')}
             [{ text: "✅ استلام الحالة (حجز فوري)", callback_data: `claim_${row.id}` }]
           ]
         }
-      }).then(() => {
+      }).then((sentMsg) => {
+        console.log("✅ Message sent successfully:", sentMsg.message_id);
         res.json({ success: true });
       }).catch((tgErr) => {
-        console.error("Telegram Error:", tgErr);
-        res.status(500).json({ error: "Telegram Send Failed" });
+        console.error("❌ Telegram Error:", tgErr.message);
+        // We return success=false to UI so admin knows it failed
+        res.status(500).json({ error: "Telegram Send Failed: " + tgErr.message });
       });
     });
   });
@@ -325,4 +339,5 @@ app.post('/api/student/login', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Telegram Bot: ${bot ? 'Active' : 'Disabled (No Token)'}`);
 });
