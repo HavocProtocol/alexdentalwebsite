@@ -3,18 +3,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, Filter, Eye, X, User, Phone, MapPin, 
-  Activity, CheckCircle, GraduationCap,
+  Activity, CheckCircle, GraduationCap, Send,
   UserCheck, XCircle, Calendar, ClipboardList, ShieldAlert
 } from 'lucide-react';
 import { 
-  getCases, updateCaseStatus, getStudents, updateStudentStatus, assignCaseToStudent, approveCaseAssignment 
+  getCases, updateCaseStatus, getStudents, updateStudentStatus, assignCaseToStudent, approveCaseAssignment, publishCase 
 } from '../services/dataService';
 import { PatientCase, CaseStatus, Student, StudentStatus } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, STUDENT_STATUS_LABELS } from '../constants';
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'CASES' | 'STUDENTS'>('CASES');
+  const [activeTab, setActiveTab] = useState<'NEW_REQUESTS' | 'CASES' | 'STUDENTS'>('NEW_REQUESTS');
 
   // Data
   const [cases, setCases] = useState<PatientCase[]>([]);
@@ -39,11 +39,22 @@ export const AdminDashboard: React.FC = () => {
   }, [navigate]);
 
   useEffect(() => {
-    if (activeTab === 'CASES') {
+    if (activeTab === 'CASES' || activeTab === 'NEW_REQUESTS') {
       let result = cases;
-      if (statusFilter !== 'ALL') {
+      
+      // Strict Tab Filtering
+      if (activeTab === 'NEW_REQUESTS') {
+          // Show RECEIVED (Not published)
+          result = result.filter(c => c.status === CaseStatus.RECEIVED);
+      } else {
+          // Show published, claimed, etc.
+          result = result.filter(c => c.status !== CaseStatus.RECEIVED);
+      }
+
+      if (statusFilter !== 'ALL' && activeTab === 'CASES') {
         result = result.filter(c => c.status === statusFilter);
       }
+
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         result = result.filter(c => 
@@ -52,12 +63,9 @@ export const AdminDashboard: React.FC = () => {
           c.phone.includes(term)
         );
       }
-      // Prioritize Pending Approval cases
-      result.sort((a, b) => {
-        if (a.status === CaseStatus.WAITING_ADMIN_APPROVAL && b.status !== CaseStatus.WAITING_ADMIN_APPROVAL) return -1;
-        if (b.status === CaseStatus.WAITING_ADMIN_APPROVAL && a.status !== CaseStatus.WAITING_ADMIN_APPROVAL) return 1;
-        return new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime();
-      });
+      
+      // Sort: Date
+      result.sort((a, b) => new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime());
       setFilteredCases(result);
     } else {
       let result = students;
@@ -82,41 +90,24 @@ export const AdminDashboard: React.FC = () => {
     setStudents(s);
   };
 
-  const handleStatusChange = async (newStatus: string) => {
-    if (!selectedCase) return;
-    const success = await updateCaseStatus(selectedCase.id, newStatus as CaseStatus);
-    if (success) {
-      // Optimistic update or reload
-      setSelectedCase({ ...selectedCase, status: newStatus as CaseStatus });
-      loadData();
-    }
-  };
-
-  const handleApproveAssignment = async (caseId: string, studentId: string) => {
-    const success = await approveCaseAssignment(caseId);
+  const handlePublishCase = async (id: string) => {
+    const success = await publishCase(id);
     if (success) {
       setSelectedCase(null);
       loadData();
+      alert("تم نشر الحالة للطلاب وإرسال الإشعار على تيليجرام بنجاح");
+    } else {
+      alert("حدث خطأ أثناء النشر");
     }
   };
 
-  const handleRejectAssignment = async (caseId: string) => {
-      // Revert to SENT_TO_STUDENTS
-      const success = await updateCaseStatus(caseId, CaseStatus.SENT_TO_STUDENTS);
-      if(success) {
+  const handleRejectNewRequest = async (id: string) => {
+      const success = await updateCaseStatus(id, CaseStatus.CANCELLED);
+      if (success) {
           setSelectedCase(null);
           loadData();
       }
-  };
-
-  const handleAssignStudent = async (studentId: string) => {
-    if (!selectedCase) return;
-    const success = await assignCaseToStudent(selectedCase.id, studentId);
-    if (success) {
-      setSelectedCase(null);
-      loadData();
-    }
-  };
+  }
 
   const handleStudentAction = async (studentId: string, action: StudentStatus) => {
     await updateStudentStatus(studentId, action);
@@ -140,15 +131,22 @@ export const AdminDashboard: React.FC = () => {
         {/* Tab Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-6 mt-2">
           <button 
+            onClick={() => { setActiveTab('NEW_REQUESTS'); setStatusFilter('ALL'); setSearchTerm(''); }}
+            className={`pb-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${activeTab === 'NEW_REQUESTS' ? 'border-medical-600 text-medical-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            طلبات جديدة (للمراجعة)
+            {cases.filter(c => c.status === CaseStatus.RECEIVED).length > 0 && (
+              <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full animate-pulse">
+                {cases.filter(c => c.status === CaseStatus.RECEIVED).length}
+              </span>
+            )}
+          </button>
+          
+          <button 
             onClick={() => { setActiveTab('CASES'); setStatusFilter('ALL'); setSearchTerm(''); }}
             className={`pb-3 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'CASES' ? 'border-medical-600 text-medical-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
-            إدارة الحالات ({cases.length})
-            {cases.some(c => c.status === CaseStatus.WAITING_ADMIN_APPROVAL) && (
-              <span className="mr-2 bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full animate-pulse">
-                {cases.filter(c => c.status === CaseStatus.WAITING_ADMIN_APPROVAL).length} طلب إسناد
-              </span>
-            )}
+            إدارة الحالات النشطة
           </button>
           <button 
              onClick={() => { setActiveTab('STUDENTS'); setStatusFilter('ALL'); setSearchTerm(''); }}
@@ -157,7 +155,7 @@ export const AdminDashboard: React.FC = () => {
             إدارة الطلاب ({students.length})
             {students.some(s => s.status === StudentStatus.PENDING) && (
               <span className="mr-2 bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full animate-pulse">
-                {students.filter(s => s.status === StudentStatus.PENDING).length} طلب تسجيل
+                {students.filter(s => s.status === StudentStatus.PENDING).length}
               </span>
             )}
           </button>
@@ -175,12 +173,13 @@ export const AdminDashboard: React.FC = () => {
             <input
               type="text"
               className="block w-full pr-10 rounded-md border-gray-300 shadow-sm focus:ring-medical-500 focus:border-medical-500 p-2 border"
-              placeholder={activeTab === 'CASES' ? "بحث بالاسم، الرقم، أو الهاتف..." : "بحث باسم الطالب، الرقم الجامعي..."}
+              placeholder={activeTab === 'STUDENTS' ? "بحث باسم الطالب..." : "بحث بالاسم، الرقم، أو الهاتف..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
           <div className="w-full md:w-64">
+             {activeTab === 'CASES' && (
              <div className="relative">
                 <select
                   value={statusFilter}
@@ -188,77 +187,22 @@ export const AdminDashboard: React.FC = () => {
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:ring-medical-500 focus:border-medical-500 p-2 border appearance-none"
                 >
                   <option value="ALL">الكل</option>
-                  {activeTab === 'CASES' 
-                    ? Object.keys(STATUS_LABELS).map((status) => (
+                  {Object.keys(STATUS_LABELS)
+                     .filter(s => s !== 'RECEIVED') // Hide RECEIVED from active cases filter
+                     .map((status) => (
                         <option key={status} value={status}>{STATUS_LABELS[status as CaseStatus]}</option>
-                      ))
-                    : Object.keys(STUDENT_STATUS_LABELS).map((status) => (
-                        <option key={status} value={status}>{STUDENT_STATUS_LABELS[status as StudentStatus]}</option>
                       ))
                   }
                 </select>
                 <Filter className="absolute left-3 top-2.5 h-5 w-5 text-gray-400 pointer-events-none" />
              </div>
+             )}
           </div>
         </div>
 
         {/* Content based on Tab */}
-        {activeTab === 'CASES' ? (
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">رقم الحالة</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المريض</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المشكلة</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الحالة</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الطالب المعالج</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase"></th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredCases.map((c) => {
-                  const assignedStudent = students.find(s => s.id === c.assignedStudentId) || (c.assignedStudentId === 'LINKED' ? { fullName: 'طالب' } : null);
-                  const isPendingApproval = c.status === CaseStatus.WAITING_ADMIN_APPROVAL;
-                  return (
-                    <tr key={c.id} className={`hover:bg-gray-50 ${isPendingApproval ? 'bg-purple-50' : ''}`}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{c.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div className="font-bold">{c.fullName}</div>
-                        <div className="text-xs">{c.phone}</div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">{c.problems[0]}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${STATUS_COLORS[c.status]}`}>
-                          {STATUS_LABELS[c.status]}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                         {assignedStudent ? (
-                           <div className="flex items-center gap-1 text-medical-700 font-medium">
-                             <User className="h-3 w-3" /> {assignedStudent.fullName}
-                           </div>
-                         ) : (
-                           <span className="text-gray-400">-</span>
-                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button 
-                          onClick={() => setSelectedCase(c)} 
-                          className="text-medical-600 hover:text-medical-900 flex items-center gap-1 border px-3 py-1 rounded hover:bg-white"
-                        >
-                          <Eye className="h-4 w-4" /> 
-                          {isPendingApproval ? 'مراجعة الطلب' : 'عرض'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="bg-white shadow rounded-lg overflow-hidden">
+        {activeTab === 'STUDENTS' ? (
+           <div className="bg-white shadow rounded-lg overflow-hidden">
              {/* Students Table */}
              <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -295,6 +239,64 @@ export const AdminDashboard: React.FC = () => {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="bg-white shadow rounded-lg overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">رقم الحالة</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المريض</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المشكلة</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الحالة</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الطالب المعالج</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase"></th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredCases.map((c) => {
+                  const assignedStudent = students.find(s => s.id === c.assignedStudentId) || (c.assignedStudentId === 'LINKED' ? { fullName: c.assignedStudent } : null);
+                  return (
+                    <tr key={c.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{c.id}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div className="font-bold">{c.fullName}</div>
+                        <div className="text-xs">{c.phone}</div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">{c.problems[0]}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${STATUS_COLORS[c.status]}`}>
+                          {STATUS_LABELS[c.status]}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                         {assignedStudent ? (
+                           <div className="flex items-center gap-1 text-medical-700 font-medium">
+                             <User className="h-3 w-3" /> {assignedStudent.fullName}
+                           </div>
+                         ) : (
+                           <span className="text-gray-400">-</span>
+                         )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button 
+                          onClick={() => setSelectedCase(c)} 
+                          className="text-medical-600 hover:text-medical-900 flex items-center gap-1 border px-3 py-1 rounded hover:bg-white"
+                        >
+                          <Eye className="h-4 w-4" /> 
+                          {activeTab === 'NEW_REQUESTS' ? 'مراجعة ونشر' : 'عرض'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredCases.length === 0 && (
+                    <tr>
+                        <td colSpan={6} className="text-center py-10 text-gray-500">لا توجد حالات في هذا القسم</td>
+                    </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -366,6 +368,31 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Medical History Display */}
+                <div className="mb-6">
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <Activity className="h-4 w-4" /> التاريخ المرضي
+                    </h4>
+                    <div className={`p-4 rounded-lg border ${selectedCase.medicalHistory.length > 0 && !selectedCase.medicalHistory.includes("لا أعاني من أمراض مزمنة") ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                         {selectedCase.medicalHistory.length > 0 ? (
+                             <div className="space-y-2">
+                                 {selectedCase.medicalHistory.map((d, i) => (
+                                     <div key={i} className="flex items-center gap-2 font-bold text-gray-800">
+                                         <ShieldAlert className="h-4 w-4" /> {d}
+                                     </div>
+                                 ))}
+                                 {selectedCase.medicalNotes && (
+                                     <div className="text-sm text-gray-700 mt-2 border-t border-gray-200 pt-2">
+                                         {selectedCase.medicalNotes}
+                                     </div>
+                                 )}
+                             </div>
+                         ) : (
+                             <span className="text-green-800 font-medium">لا توجد أمراض مزمنة</span>
+                         )}
+                    </div>
+                </div>
+
                 {/* Dental Complaints */}
                 <div className="mb-6">
                     <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -388,28 +415,22 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Assignment Approval Logic */}
-                {selectedCase.status === CaseStatus.WAITING_ADMIN_APPROVAL && selectedCase.assignedStudentId && (
-                    <div className="mb-6 bg-purple-50 p-4 rounded-lg border border-purple-200 shadow-inner">
-                        <h4 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
-                             <UserCheck className="h-5 w-5" />
-                             مراجعة طلب الإسناد
-                        </h4>
-                        <div className="text-sm text-purple-800 mb-4 bg-white p-3 rounded border border-purple-100">
-                            الطالب <strong className="text-lg">{selectedCase.assignedStudent}</strong> 
-                            <div className="mt-2 pt-2 border-t border-gray-100">
-                                يطلب استلام هذه الحالة.
-                            </div>
-                        </div>
+                {/* Action: PUBLISH (For New Requests) */}
+                {selectedCase.status === CaseStatus.RECEIVED && (
+                    <div className="mb-6 bg-yellow-50 p-4 rounded-lg border border-yellow-200 shadow-inner">
+                        <h4 className="font-bold text-yellow-900 mb-2">إجراءات القبول</h4>
+                        <p className="text-sm text-yellow-800 mb-4">
+                            مراجعة البيانات قبل النشر. عند الموافقة، سيتم إرسال إشعار للطلاب على تيليجرام.
+                        </p>
                         <div className="flex gap-3">
                             <button 
-                                onClick={() => selectedCase.assignedStudentId && handleApproveAssignment(selectedCase.id, selectedCase.assignedStudentId)}
-                                className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center justify-center gap-2 shadow-sm"
+                                onClick={() => handlePublishCase(selectedCase.id)}
+                                className="flex-1 bg-medical-600 text-white px-4 py-2 rounded-md hover:bg-medical-700 flex items-center justify-center gap-2 shadow-sm font-bold"
                             >
-                                <CheckCircle className="h-4 w-4" /> موافقة وإرسال البيانات
+                                <Send className="h-4 w-4" /> الموافقة ونشر للطلاب
                             </button>
                             <button 
-                                onClick={() => handleRejectAssignment(selectedCase.id)}
+                                onClick={() => handleRejectNewRequest(selectedCase.id)}
                                 className="flex-1 bg-white text-red-600 border border-red-200 px-4 py-2 rounded-md hover:bg-red-50 flex items-center justify-center gap-2 shadow-sm"
                             >
                                 <XCircle className="h-4 w-4" /> رفض الطلب
