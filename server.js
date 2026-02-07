@@ -253,6 +253,15 @@ app.get('/api/cases', (req, res) => {
   });
 });
 
+// Delete Case
+app.delete('/api/cases/:id', (req, res) => {
+  const { id } = req.params;
+  db.run("DELETE FROM cases WHERE id = ?", [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
 // Update Case Status (Generic)
 app.post('/api/cases/update', (req, res) => {
   const { id, status } = req.body;
@@ -267,6 +276,15 @@ app.get('/api/students', (req, res) => {
   db.all("SELECT * FROM students ORDER BY registrationDate DESC", [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ students: rows });
+  });
+});
+
+// Delete Student
+app.delete('/api/students/:id', (req, res) => {
+  const { id } = req.params;
+  db.run("DELETE FROM students WHERE id = ?", [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
   });
 });
 
