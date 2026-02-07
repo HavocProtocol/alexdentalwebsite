@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { url, method, body } = req;
+  const { url, method, body, query } = req;
 
   // --- DATABASE INIT ---
   try {
@@ -245,6 +245,23 @@ ${problemsArr.map(p => `- ${p}`).join('\n')}
     }
   }
 
+  // Delete Case
+  if (url.includes('/api/cases') && method === 'DELETE') {
+    try {
+        // Vercel routes usually pass query params. Expecting /api/cases?id=...
+        const id = query.id; 
+        if (!id) {
+           res.status(400).json({ error: "Missing ID" });
+           return;
+        }
+        await pool.query('DELETE FROM cases WHERE id = $1', [id]);
+        res.status(200).json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+    return;
+  }
+
   // Update Case Status
   if (url.includes('/api/cases/update') && method === 'POST') {
       try {
@@ -266,6 +283,22 @@ ${problemsArr.map(p => `- ${p}`).join('\n')}
           res.status(500).json({ error: e.message });
       }
       return;
+  }
+
+  // Delete Student
+  if (url.includes('/api/students') && method === 'DELETE') {
+    try {
+        const id = query.id;
+        if (!id) {
+           res.status(400).json({ error: "Missing ID" });
+           return;
+        }
+        await pool.query('DELETE FROM students WHERE id = $1', [id]);
+        res.status(200).json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+    return;
   }
 
   if (url.includes('/api/students/update') && method === 'POST') {
