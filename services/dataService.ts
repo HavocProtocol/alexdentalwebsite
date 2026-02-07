@@ -1,6 +1,16 @@
 
 import { PatientCase, CaseStatus, Student, StudentStatus } from '../types';
 
+// Helper to ensure we always work with arrays
+const ensureArray = (val: any): string[] => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    return val.split(',').map(item => item.trim()).filter(item => item.length > 0);
+  }
+  return [];
+};
+
 // Helper to map DB Case (lowercase keys) to Frontend Case (CamelCase)
 const mapDBCaseToFrontend = (dbCase: any): PatientCase => {
   return {
@@ -10,9 +20,10 @@ const mapDBCaseToFrontend = (dbCase: any): PatientCase => {
     age: dbCase.age,
     gender: dbCase.gender,
     district: dbCase.district,
-    problems: dbCase.problems || (dbCase.problem ? dbCase.problem.split(',') : []),
-    medicalHistory: dbCase.medicalhistory || (dbCase.medicalHistory ? (Array.isArray(dbCase.medicalHistory) ? dbCase.medicalHistory : dbCase.medicalHistory.split(',')) : []),
-    medicalNotes: dbCase.notes || dbCase.medicalNotes || '', // DB might use 'notes' for medical notes or additional notes, assuming mapping logic here
+    // Prioritize keys that are likely arrays (from backend processing) over raw DB strings
+    problems: ensureArray(dbCase.problems || dbCase.problem),
+    medicalHistory: ensureArray(dbCase.medicalHistory || dbCase.medicalhistory), 
+    medicalNotes: dbCase.notes || dbCase.medicalNotes || '', 
     additionalNotes: dbCase.notes || dbCase.additionalNotes || '',
     isMedicalHistoryDeclared: true, // Assumed true if saved
     status: dbCase.status,
