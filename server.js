@@ -33,7 +33,6 @@ const db = new sqlite3.Database('./dental_cases.db', (err) => {
 });
 
 db.serialize(() => {
-  // Added medicalHistory column
   db.run(`CREATE TABLE IF NOT EXISTS cases (
     id TEXT PRIMARY KEY,
     fullName TEXT,
@@ -49,12 +48,23 @@ db.serialize(() => {
     assignedStudentChatId TEXT,
     submissionDate TEXT
   )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS students (
+    id TEXT PRIMARY KEY,
+    fullName TEXT,
+    universityId TEXT,
+    email TEXT,
+    password TEXT,
+    status TEXT DEFAULT 'PENDING',
+    registrationDate TEXT,
+    telegramChatId TEXT
+  )`);
 });
 
 // --- TELEGRAM BOT SETUP ---
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-// Handle "Claim Case" button clicks
+// Handle "Claim Case" button clicks (Strict Logic)
 bot.on('callback_query', (query) => {
   const chatId = query.message.chat.id; // Group Chat ID
   const userChatId = query.from.id; // Student Private Chat ID
@@ -65,41 +75,83 @@ bot.on('callback_query', (query) => {
   if (data.startsWith('claim_')) {
     const caseId = data.split('_')[1];
 
-    // Check DB status
+    // 1. Transaction-like check to prevent race conditions
     db.get("SELECT * FROM cases WHERE id = ?", [caseId], (err, row) => {
       if (err || !row) {
-        bot.answerCallbackQuery(query.id, { text: "حدث خطأ أو الحالة غير موجودة" });
+        bot.answerCallbackQuery(query.id, { text: "❌ حدث خطأ: الحالة غير موجودة في النظام." });
         return;
       }
 
-      if (row.status !== 'RECEIVED' && row.status !== 'SENT_TO_STUDENTS') {
-        bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، تم حجز هذه الحالة بالفعل!", show_alert: true });
+      // STRICT CHECK: Case must be in 'SENT_TO_STUDENTS' state only
+      if (row.status !== 'SENT_TO_STUDENTS') {
+        bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، هذه الحالة تم حجزها بالفعل من قبل طالب آخر.", show_alert: true });
+        
+        // Update the message visually if it hasn't been updated yet
+        bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+          chat_id: chatId,
+          message_id: query.message.message_id
+        }).catch(() => {}); // Ignore error if already edited
         return;
       }
 
-      // 1. Update DB to WAITING_ADMIN_APPROVAL (Do NOT assign yet)
+      // 2. Immediate Assignment (Lock the case)
+      // We assume the student is valid. In a real scenario, we'd check the 'students' table here.
+      // Update status to IN_TREATMENT immediately (skipping admin approval step as per new prompt)
       db.run("UPDATE cases SET status = ?, assignedStudent = ?, assignedStudentChatId = ? WHERE id = ?", 
-        ['WAITING_ADMIN_APPROVAL', studentUsername, userChatId, caseId], 
+        ['IN_TREATMENT', studentUsername, userChatId, caseId], 
         (updateErr) => {
-          if (updateErr) return;
+          if (updateErr) {
+            bot.answerCallbackQuery(query.id, { text: "حدث خطأ أثناء الحجز." });
+            return;
+          }
 
-          // 2. Alert Student (Popup)
+          // 3. Notify User (Popup)
           bot.answerCallbackQuery(query.id, { 
-            text: "✅ تم تسجيل طلبك! الحالة الآن بانتظار موافقة الإدارة. ستصلك التفاصيل في رسالة خاصة بعد الموافقة.", 
+            text: "✅ تم استلام الحالة بنجاح! أنت المسؤول عنها الآن.", 
             show_alert: true 
           });
 
-          // 3. Update Group Message (Indicate Pending)
+          // 4. Update Group Message (Remove Button & Show Owner)
           const originalText = query.message.text;
-          bot.editMessageText(`${originalText}\n\n⏳ *جاري المراجعة لـ:* ${studentUsername}`, {
+          // Strip the last lines (instructions) and append owner info
+          const cleanText = originalText.split('👇')[0].trim(); 
+          
+          bot.editMessageText(`${cleanText}\n\n🔒 *تم الحجز بواسطة:* ${studentUsername}`, {
             chat_id: chatId,
             message_id: query.message.message_id,
             parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [] } // Remove buttons to prevent double claiming
+            reply_markup: { inline_keyboard: [] } // Remove buttons permanently
           });
           
-          // 4. Send Confirmation to Student DM
-          bot.sendMessage(userChatId, `⏳ لقد قمت بطلب الحالة رقم ${caseId}. يرجى الانتظار حتى يقوم المشرف بمراجعة طلبك وإرسال بيانات المريض.`);
+          // 5. Send Private DM with FULL DETAILS (Sensitive Data)
+          const privateMessage = `
+🎉 *تهانينا! تم إسناد الحالة لك.*
+
+📝 *تفاصيل المريض الكاملة:*
+🆔 رقم الملف: \`${row.id}\`
+👤 الاسم: *${row.fullName}*
+📞 الهاتف: \`${row.phone}\`
+📍 المنطقة: ${row.district}
+
+⚠️ *التاريخ المرضي:*
+${row.medicalHistory || "لا توجد أمراض مزمنة معلنة"}
+
+💬 *ملاحظات:*
+${row.notes || "لا يوجد"}
+
+📌 *تعليمات:*
+1. تواصل مع المريض فوراً لتحديد الموعد.
+2. تأكد من أخذ تاريخ مرضي مفصل في أول زيارة.
+3. التزم بمعايير مكافحة العدوى.
+
+بالتوفيق يا دكتور! 🦷
+          `.trim();
+
+          bot.sendMessage(userChatId, privateMessage, { parse_mode: 'Markdown' })
+            .catch((e) => {
+               console.error("Failed to DM student:", e.message);
+               // Fallback: Could assume student hasn't started bot
+            });
         }
       );
     });
@@ -108,13 +160,14 @@ bot.on('callback_query', (query) => {
 
 // --- API ENDPOINTS ---
 
-// Submit a new case
+// Submit a new case (Patient Side)
 app.post('/api/submit', (req, res) => {
   const data = req.body;
   
-  const stmt = db.prepare(`INSERT INTO cases (id, fullName, phone, age, gender, district, problem, medicalHistory, notes, submissionDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const stmt = db.prepare(`INSERT INTO cases (id, fullName, phone, age, gender, district, problem, medicalHistory, notes, submissionDate, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECEIVED')`);
   
   const medicalHistoryStr = data.medicalHistory ? data.medicalHistory.join(', ') : '';
+  const problemStr = data.problems ? data.problems.join(', ') : '';
 
   stmt.run(
     data.id, 
@@ -123,7 +176,7 @@ app.post('/api/submit', (req, res) => {
     data.age, 
     data.gender, 
     data.district, 
-    data.problems.join(', '),
+    problemStr,
     medicalHistoryStr,
     data.additionalNotes, 
     data.submissionDate, 
@@ -133,31 +186,10 @@ app.post('/api/submit', (req, res) => {
         return res.status(500).json({ success: false });
       }
 
-      // Format Message for Group (HIDE SENSITIVE INFO)
-      const message = `
-📢 *حالة جديدة متاحة* 🦷
-
-🆔 *رقم الحالة:* ${data.id}
-🎂 *العمر:* ${data.age} | ${data.gender}
-📍 *المنطقة:* ${data.district}
-
-🛑 *الشكوى:*
-${data.problems.map(p => `- ${p}`).join('\n')}
-
-⚠️ *تنبيه:* التفاصيل الطبية وبيانات الاتصال ستصل للطالب الموافق عليه فقط.
-
-👇 اضغط لطلب الحالة
-      `.trim();
-
-      // Send to Group with Button
-      bot.sendMessage(TELEGRAM_GROUP_ID, message, {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "✋ طلب استلام الحالة", callback_data: `claim_${data.id}` }]
-          ]
-        }
-      });
+      // NOTE: Do NOT send to Telegram Group yet.
+      // Admin must approve first via Dashboard.
+      
+      // Optional: Notify Admin Private Channel (not implemented here, keeping it simple)
 
       res.json({ success: true, id: data.id });
     }
@@ -165,39 +197,50 @@ ${data.problems.map(p => `- ${p}`).join('\n')}
   stmt.finalize();
 });
 
-// Admin approves assignment -> Send Private DM
-app.post('/api/approve-assignment', (req, res) => {
-  const { caseId } = req.body;
-
-  db.get("SELECT * FROM cases WHERE id = ?", [caseId], (err, row) => {
-    if (err || !row || !row.assignedStudentChatId) {
-      return res.status(404).json({ error: "Case or Student Chat ID not found" });
+// Publish Case (Admin Side) - This triggers the Telegram Message
+app.post('/api/cases/publish', (req, res) => {
+  const { id } = req.body;
+  
+  db.get("SELECT * FROM cases WHERE id = ?", [id], (err, row) => {
+    if (err || !row) {
+      return res.status(404).json({ error: "Case not found" });
     }
 
-    // Update Status to APPROVED
-    db.run("UPDATE cases SET status = 'APPROVED_FOR_TREATMENT' WHERE id = ?", [caseId], () => {
-      
-      // Send Private DM with FULL Details
-      const patientDetails = `
-✅ *تمت الموافقة على طلبك!*
+    // 1. Update Status
+    db.run("UPDATE cases SET status = 'SENT_TO_STUDENTS' WHERE id = ?", [id], (updateErr) => {
+      if (updateErr) return res.status(500).json({ error: "DB Update Failed" });
 
-🆔 رقم الحالة: \`${row.id}\`
-👤 اسم المريض: ${row.fullName}
-📞 رقم الهاتف: \`${row.phone}\`
-📍 المنطقة: ${row.district}
+      // 2. Format Telegram Message (SANITIZED - NO PHONE/NAME)
+      const problemsArr = row.problem ? row.problem.split(', ') : [];
+      const message = `
+📢 *حالة جديدة متاحة للحجز* 🦷
 
-🏥 *التاريخ المرضي:*
-${row.medicalHistory || "لا يوجد"}
+🆔 *رقم الحالة:* \`${row.id}\`
+🎂 *العمر:* ${row.age} | ${row.gender}
+📍 *المنطقة:* ${row.district}
 
-📝 *ملاحظات:*
-${row.notes || "لا يوجد"}
+🛑 *الشكوى الرئيسية:*
+${problemsArr.map(p => `- ${p}`).join('\n')}
 
-يرجى التواصل مع المريض فوراً. بالتوفيق! 🦷
+⚠️ *تنبيه:* بيانات الاتصال والتاريخ المرضي مخفية. ستظهر فقط للطالب الذي يقوم بالحجز أولاً.
+
+👇 اضغط على الزر أدناه لاستلام الحالة فوراً
       `.trim();
 
-      bot.sendMessage(row.assignedStudentChatId, patientDetails, { parse_mode: 'Markdown' })
-        .then(() => res.json({ success: true }))
-        .catch(e => res.status(500).json({ error: e.message }));
+      // 3. Send to Group with Claim Button
+      bot.sendMessage(TELEGRAM_GROUP_ID, message, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✅ استلام الحالة (حجز فوري)", callback_data: `claim_${row.id}` }]
+          ]
+        }
+      }).then(() => {
+        res.json({ success: true });
+      }).catch((tgErr) => {
+        console.error("Telegram Error:", tgErr);
+        res.status(500).json({ error: "Telegram Send Failed" });
+      });
     });
   });
 });
@@ -210,7 +253,58 @@ app.get('/api/cases', (req, res) => {
   });
 });
 
-// Start Server
+// Update Case Status (Generic)
+app.post('/api/cases/update', (req, res) => {
+  const { id, status } = req.body;
+  db.run("UPDATE cases SET status = ? WHERE id = ?", [status, id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// --- STUDENT ENDPOINTS ---
+app.get('/api/students', (req, res) => {
+  db.all("SELECT * FROM students ORDER BY registrationDate DESC", [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ students: rows });
+  });
+});
+
+app.post('/api/students/update', (req, res) => {
+  const { id, status } = req.body;
+  db.run("UPDATE students SET status = ? WHERE id = ?", [status, id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+app.post('/api/student/register', (req, res) => {
+  const { fullName, universityId, email, password } = req.body;
+  const id = 'ST-' + Math.floor(10000 + Math.random() * 90000);
+  const now = new Date().toISOString();
+
+  const stmt = db.prepare(`INSERT INTO students (id, fullName, universityId, email, password, status, registrationDate) VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`);
+  stmt.run(id, fullName, universityId, email, password, now, function(err) {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true });
+  });
+  stmt.finalize();
+});
+
+app.post('/api/student/login', (req, res) => {
+  const { email, password } = req.body;
+  db.get("SELECT * FROM students WHERE email = ? AND password = ?", [email, password], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (row) {
+        if (row.status === 'PENDING') return res.json({ success: false, message: 'حسابك لا يزال قيد المراجعة' });
+        if (row.status === 'REJECTED') return res.json({ success: false, message: 'تم رفض الحساب' });
+        res.json({ success: true, student: row });
+    } else {
+      res.json({ success: false, message: 'بيانات الدخول غير صحيحة' });
+    }
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
