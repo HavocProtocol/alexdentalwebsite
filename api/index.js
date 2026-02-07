@@ -83,31 +83,63 @@ export default async function handler(req, res) {
         if (data.startsWith('claim_')) {
           const caseId = data.split('_')[1];
 
+          // Fetch Case
           const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [caseId]);
           const patientCase = rows[0];
 
           if (!patientCase) {
-             await bot.answerCallbackQuery(query.id, { text: "حدث خطأ أو الحالة غير موجودة" });
-          } else if (patientCase.status !== 'RECEIVED' && patientCase.status !== 'SENT_TO_STUDENTS') {
-             await bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، تم حجز هذه الحالة بالفعل!", show_alert: true });
+             await bot.answerCallbackQuery(query.id, { text: "❌ خطأ: الحالة غير موجودة" });
+          } else if (patientCase.status !== 'SENT_TO_STUDENTS') {
+             // RACE CONDITION CHECK
+             await bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، تم حجز الحالة من قبل زميل آخر.", show_alert: true });
+             // Attempt to remove button if stale
+             try {
+                await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                    chat_id: query.message.chat.id,
+                    message_id: query.message.message_id
+                });
+             } catch (e) {}
           } else {
+             // IMMEDIATE ASSIGNMENT
              await pool.query(
-               'UPDATE cases SET status = $1, assignedStudent = $2, assignedStudentChatId = $3 WHERE id = $4',
-               ['WAITING_ADMIN_APPROVAL', studentUsername, userChatId, caseId]
+               "UPDATE cases SET status = 'IN_TREATMENT', assignedStudent = $1, assignedStudentChatId = $2 WHERE id = $3",
+               [studentUsername, userChatId, caseId]
              );
              
-             await bot.answerCallbackQuery(query.id, { text: "✅ تم تسجيل طلبك! بانتظار موافقة الإدارة.", show_alert: true });
+             await bot.answerCallbackQuery(query.id, { text: "✅ تم استلام الحالة بنجاح!", show_alert: true });
              
+             // Update Group Message
              if (query.message) {
                 const originalText = query.message.text;
-                await bot.editMessageText(`${originalText}\n\n⏳ *جاري المراجعة لـ:* ${studentUsername}`, {
+                const cleanText = originalText.split('👇')[0].trim();
+                await bot.editMessageText(`${cleanText}\n\n🔒 *تم الحجز بواسطة:* ${studentUsername}`, {
                   chat_id: query.message.chat.id,
                   message_id: query.message.message_id,
                   parse_mode: 'Markdown',
                   reply_markup: { inline_keyboard: [] }
                 });
              }
-             await bot.sendMessage(userChatId, `⏳ لقد قمت بطلب الحالة رقم ${caseId}. يرجى الانتظار حتى يقوم المشرف بمراجعة طلبك.`);
+             
+             // Send Private DM with Sensitive Data
+             const privateMessage = `
+🎉 *تهانينا! تم إسناد الحالة لك.*
+
+📝 *تفاصيل المريض الكاملة:*
+🆔 رقم الملف: \`${patientCase.id}\`
+👤 الاسم: *${patientCase.fullname}*
+📞 الهاتف: \`${patientCase.phone}\`
+📍 المنطقة: ${patientCase.district}
+
+⚠️ *التاريخ المرضي:*
+${patientCase.medicalhistory || "لا يوجد"}
+
+💬 *ملاحظات:*
+${patientCase.notes || "لا يوجد"}
+
+يرجى التواصل مع المريض فوراً.
+             `.trim();
+             
+             await bot.sendMessage(userChatId, privateMessage, { parse_mode: 'Markdown' });
           }
         }
       }
@@ -121,44 +153,19 @@ export default async function handler(req, res) {
 
   // --- 2. CASE MANAGEMENT ---
 
-  // Submit Case
+  // Submit Case (Patient)
   if (url.includes('/api/submit') && method === 'POST') {
     try {
       const data = body;
       const medicalHistoryStr = data.medicalHistory ? data.medicalHistory.join(', ') : '';
       const problemsStr = data.problems ? data.problems.join(', ') : '';
 
+      // Force status RECEIVED. Do NOT send to Telegram yet.
       await pool.query(
-        `INSERT INTO cases (id, fullName, phone, age, gender, district, problem, medicalHistory, notes, submissionDate) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        `INSERT INTO cases (id, fullName, phone, age, gender, district, problem, medicalHistory, notes, submissionDate, status) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'RECEIVED')`,
         [data.id, data.fullName, data.phone, data.age, data.gender, data.district, problemsStr, medicalHistoryStr, data.additionalNotes, data.submissionDate]
       );
-
-      const message = `
-📢 *حالة جديدة متاحة* 🦷
-
-🆔 *رقم الحالة:* ${data.id}
-🎂 *العمر:* ${data.age} | ${data.gender}
-📍 *المنطقة:* ${data.district}
-
-🛑 *الشكوى:*
-${data.problems.map(p => `- ${p}`).join('\n')}
-
-⚠️ *تنبيه:* التفاصيل الطبية وبيانات الاتصال ستصل للطالب الموافق عليه فقط.
-
-👇 اضغط لطلب الحالة
-      `.trim();
-
-      if (TELEGRAM_GROUP_ID && TELEGRAM_TOKEN) {
-        await bot.sendMessage(TELEGRAM_GROUP_ID, message, {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "✋ طلب استلام الحالة", callback_data: `claim_${data.id}` }]
-            ]
-          }
-        });
-      }
 
       res.status(200).json({ success: true, id: data.id });
     } catch (e) {
@@ -168,31 +175,77 @@ ${data.problems.map(p => `- ${p}`).join('\n')}
     return;
   }
 
+  // Publish Case (Admin Only)
+  if (url.includes('/api/cases/publish') && method === 'POST') {
+    try {
+      const { id } = body;
+      
+      const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [id]);
+      const data = rows[0];
+
+      if (!data) {
+        res.status(404).json({ error: "Case not found" });
+        return;
+      }
+
+      await pool.query("UPDATE cases SET status = 'SENT_TO_STUDENTS' WHERE id = $1", [id]);
+
+      // SANITIZED Message for Group
+      const problemsArr = data.problem ? data.problem.split(', ') : [];
+      const message = `
+📢 *حالة جديدة متاحة للحجز* 🦷
+
+🆔 *رقم الحالة:* \`${data.id}\`
+🎂 *العمر:* ${data.age} | ${data.gender}
+📍 *المنطقة:* ${data.district}
+
+🛑 *الشكوى الرئيسية:*
+${problemsArr.map(p => `- ${p}`).join('\n')}
+
+⚠️ *تنبيه:* بيانات الاتصال والتاريخ المرضي مخفية. ستظهر فقط للطالب الذي يقوم بالحجز أولاً.
+
+👇 اضغط على الزر أدناه لاستلام الحالة فوراً
+      `.trim();
+
+      if (TELEGRAM_GROUP_ID && TELEGRAM_TOKEN) {
+        await bot.sendMessage(TELEGRAM_GROUP_ID, message, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "✅ استلام الحالة (حجز فوري)", callback_data: `claim_${data.id}` }]
+            ]
+          }
+        });
+      }
+
+      res.status(200).json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+    return;
+  }
+
   // Get Cases
   if (url.includes('/api/cases') && method === 'GET') {
     try {
-      if (url.includes('update')) {
-          // This catches /api/cases/update if routing is tricky, but strictly handled below usually
-      } else {
         const { rows } = await pool.query('SELECT * FROM cases ORDER BY submissionDate DESC');
-        // Convert comma-separated strings back to arrays for frontend
         const cases = rows.map(r => ({
             ...r,
             problems: r.problem ? r.problem.split(', ') : [],
             medicalHistory: r.medicalhistory ? r.medicalhistory.split(', ') : [],
             additionalNotes: r.notes,
-            assignedStudentId: r.assignedstudentchatid ? 'LINKED' : null // Simplified for security/display
+            assignedStudentId: r.assignedstudentchatid ? 'LINKED' : null
         }));
         res.status(200).json({ cases });
         return;
-      }
     } catch (e) {
       res.status(500).json({ error: e.message });
       return;
     }
   }
 
-  // Update Case Status (Generic)
+  // Update Case Status
   if (url.includes('/api/cases/update') && method === 'POST') {
       try {
           const { id, status } = body;
@@ -204,51 +257,9 @@ ${data.problems.map(p => `- ${p}`).join('\n')}
       return;
   }
 
-  // Approve Assignment
-  if (url.includes('/api/approve-assignment') && method === 'POST') {
-    try {
-      const { caseId } = body;
-      const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [caseId]);
-      const row = rows[0];
-
-      if (!row || !row.assignedstudentchatid) {
-        res.status(404).json({ error: "Case or Student Chat ID not found" });
-        return;
-      }
-
-      await pool.query("UPDATE cases SET status = 'APPROVED_FOR_TREATMENT' WHERE id = $1", [caseId]);
-
-      const patientDetails = `
-✅ *تمت الموافقة على طلبك!*
-
-🆔 رقم الحالة: \`${row.id}\`
-👤 اسم المريض: ${row.fullname}
-📞 رقم الهاتف: \`${row.phone}\`
-📍 المنطقة: ${row.district}
-
-🏥 *التاريخ المرضي:*
-${row.medicalhistory || "لا يوجد"}
-
-📝 *ملاحظات:*
-${row.notes || "لا يوجد"}
-
-يرجى التواصل مع المريض فوراً. بالتوفيق! 🦷
-      `.trim();
-
-      await bot.sendMessage(row.assignedstudentchatid, patientDetails, { parse_mode: 'Markdown' });
-      res.status(200).json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-    return;
-  }
-
-  // --- 3. STUDENT MANAGEMENT ---
-
-  // Get Students
+  // Student Endpoints (Same as before)
   if (url.includes('/api/students') && method === 'GET') {
       try {
-          if (url.includes('update')) return; // skip if caught by wildcard
           const { rows } = await pool.query('SELECT * FROM students ORDER BY registrationDate DESC');
           res.status(200).json({ students: rows });
       } catch (e) {
@@ -257,7 +268,6 @@ ${row.notes || "لا يوجد"}
       return;
   }
 
-  // Update Student Status
   if (url.includes('/api/students/update') && method === 'POST') {
       try {
           const { id, status } = body;
@@ -269,7 +279,6 @@ ${row.notes || "لا يوجد"}
       return;
   }
 
-  // Register Student
   if (url.includes('/api/student/register') && method === 'POST') {
     try {
       const { fullName, universityId, email, password } = body;
@@ -289,7 +298,6 @@ ${row.notes || "لا يوجد"}
     return;
   }
 
-  // Login Student
   if (url.includes('/api/student/login') && method === 'POST') {
     try {
       const { email, password } = body;
