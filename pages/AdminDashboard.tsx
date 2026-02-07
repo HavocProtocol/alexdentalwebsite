@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Search, Filter, Eye, X, User, Phone, MapPin, 
   Activity, CheckCircle, GraduationCap, Send,
-  UserCheck, XCircle, Calendar, ClipboardList, ShieldAlert
+  UserCheck, XCircle, Calendar, ClipboardList, ShieldAlert, Trash2
 } from 'lucide-react';
 import { 
-  getCases, updateCaseStatus, getStudents, updateStudentStatus, assignCaseToStudent, approveCaseAssignment, publishCase 
+  getCases, updateCaseStatus, getStudents, updateStudentStatus, assignCaseToStudent, approveCaseAssignment, publishCase, deleteCase, deleteStudent
 } from '../services/dataService';
 import { PatientCase, CaseStatus, Student, StudentStatus } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, STUDENT_STATUS_LABELS } from '../constants';
@@ -112,6 +112,30 @@ export const AdminDashboard: React.FC = () => {
   const handleStudentAction = async (studentId: string, action: StudentStatus) => {
     await updateStudentStatus(studentId, action);
     loadData();
+  };
+
+  const handleDeleteCase = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm("هل أنت متأكد من حذف هذه الحالة؟ لا يمكن التراجع عن هذا الإجراء.")) {
+       const success = await deleteCase(id);
+       if (success) {
+         setSelectedCase(null);
+         loadData();
+       } else {
+         alert("فشل الحذف");
+       }
+    }
+  };
+
+  const handleDeleteStudent = async (id: string) => {
+    if (window.confirm("هل أنت متأكد من حذف هذا الطالب؟ سيتم فقدان بيانات التسجيل.")) {
+       const success = await deleteStudent(id);
+       if (success) {
+         loadData();
+       } else {
+         alert("فشل الحذف");
+       }
+    }
   };
 
   return (
@@ -226,7 +250,7 @@ export const AdminDashboard: React.FC = () => {
                          {STUDENT_STATUS_LABELS[s.status]}
                        </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2 items-center">
                       {s.status === StudentStatus.PENDING && (
                         <>
                           <button onClick={() => handleStudentAction(s.id, StudentStatus.APPROVED)} className="text-green-600 hover:text-green-900 bg-green-50 px-2 py-1 rounded shadow-sm border border-green-100">قبول التسجيل</button>
@@ -236,6 +260,13 @@ export const AdminDashboard: React.FC = () => {
                       {s.status === StudentStatus.APPROVED && (
                           <button onClick={() => handleStudentAction(s.id, StudentStatus.REJECTED)} className="text-red-600 hover:text-red-900 text-xs">تجميد الحساب</button>
                       )}
+                      <button 
+                        onClick={() => handleDeleteStudent(s.id)} 
+                        className="text-gray-400 hover:text-red-600 p-1 hover:bg-red-50 rounded"
+                        title="حذف الطالب نهائياً"
+                      >
+                         <Trash2 className="h-4 w-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -280,13 +311,20 @@ export const AdminDashboard: React.FC = () => {
                            <span className="text-gray-400">-</span>
                          )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex items-center justify-end gap-3">
                         <button 
                           onClick={() => setSelectedCase(c)} 
                           className="text-medical-600 hover:text-medical-900 flex items-center gap-1 border px-3 py-1 rounded hover:bg-white"
                         >
                           <Eye className="h-4 w-4" /> 
                           {activeTab === 'NEW_REQUESTS' ? 'مراجعة ونشر' : 'عرض'}
+                        </button>
+                        <button 
+                           onClick={(e) => handleDeleteCase(c.id, e)} 
+                           className="text-gray-400 hover:text-red-600 p-1 hover:bg-red-50 rounded"
+                           title="حذف الحالة"
+                        >
+                           <Trash2 className="h-4 w-4" />
                         </button>
                       </td>
                     </tr>
@@ -438,6 +476,16 @@ export const AdminDashboard: React.FC = () => {
                         </div>
                     </div>
                 )}
+                
+                {/* Delete Button inside Modal */}
+                <div className="pt-4 mt-4 border-t border-gray-100 flex justify-start">
+                   <button 
+                      onClick={(e) => handleDeleteCase(selectedCase.id, e)}
+                      className="text-red-600 hover:text-red-800 text-sm flex items-center gap-1 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                   >
+                     <Trash2 className="h-4 w-4" /> حذف الحالة نهائياً
+                   </button>
+                </div>
 
               </div>
               <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse border-t border-gray-100">
