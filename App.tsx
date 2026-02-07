@@ -13,6 +13,11 @@ import { StudentRegistration } from './pages/StudentRegistration';
 import { StudentLogin } from './pages/StudentLogin';
 import { StudentDashboard } from './pages/StudentDashboard';
 import { LegalDocs } from './pages/LegalDocs';
+import { Profile } from './pages/Profile';
+import { Education } from './pages/Education';
+import { FAQ } from './pages/FAQ';
+import { News } from './pages/News';
+import { BeforeAfter } from './pages/BeforeAfter';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -25,6 +30,13 @@ const AnimatedRoutes = () => {
         <Route path="/services" element={<Services />} />
         <Route path="/contact" element={<Contact />} />
         
+        {/* New Informational Pages */}
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/education" element={<Education />} />
+        <Route path="/faq" element={<FAQ />} />
+        <Route path="/news" element={<News />} />
+        <Route path="/before-after" element={<BeforeAfter />} />
+
         <Route path="/submit" element={<PatientSubmission />} />
         
         {/* Legal Routes */}
