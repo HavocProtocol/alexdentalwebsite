@@ -20,7 +20,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     console.error(`API Error (${url}):`, error);
     // Don't notify for 404s if handled locally, but generally notify for failures
     if (!url.includes('/api/cases') || options?.method !== 'GET') {
-       notify('error', error.message || 'فشل الاتصال بالخادم. يرجى التحقق من الإنترنت.');
+       // Only notify if not a 404 (handled specifically in UI sometimes)
+       if (!error.message.includes('غير صالح')) {
+         notify('error', error.message || 'فشل الاتصال بالخادم.');
+       }
     }
     throw error;
   }
@@ -52,7 +55,7 @@ const mapDBCaseToFrontend = (dbCase: any): PatientCase => {
     isMedicalHistoryDeclared: true, 
     status: dbCase.status,
     submissionDate: dbCase.submissiondate || dbCase.submissionDate,
-    assignedStudentId: dbCase.assignedStudentId || dbCase.assignedstudentid || (dbCase.assignedstudentchatid ? 'LINKED' : null),
+    assignedStudentId: dbCase.assignedStudentId || dbCase.assignedstudentid,
     assignedStudent: dbCase.assignedStudent || dbCase.assignedstudent,
     statusHistory: dbCase.statusHistory || [],
     legalConsents: {
@@ -140,25 +143,37 @@ export const deleteCase = async (id: string): Promise<boolean> => {
 };
 
 export const approveCaseAssignment = async (caseId: string): Promise<boolean> => {
-    try {
-        await request('/api/approve-assignment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caseId })
-        });
-        return true;
-    } catch (e) {
-        return false;
-    }
-};
-
-export const assignCaseToStudent = async (caseId: string, studentId: string): Promise<boolean> => {
-    return updateCaseStatus(caseId, CaseStatus.APPROVED_FOR_TREATMENT);
+    // Legacy function, kept for compatibility
+    return true; 
 };
 
 export const generateCaseId = (): string => {
   return 'CS-' + Math.floor(1000 + Math.random() * 9000).toString();
 };
+
+// --- CLAIMING LOGIC ---
+
+export const verifyClaimToken = async (token: string): Promise<{ success: boolean, case?: Partial<PatientCase>, message?: string }> => {
+    try {
+        const data: any = await request(`/api/cases/claim-info/${token}`);
+        return { success: true, case: data.case };
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
+};
+
+export const confirmClaim = async (token: string, studentId: string, studentName: string): Promise<{ success: boolean, message?: string }> => {
+    try {
+        await request('/api/cases/confirm-claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, studentId, studentName })
+        });
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
+}
 
 // --- STUDENTS ---
 
