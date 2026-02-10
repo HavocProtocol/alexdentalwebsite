@@ -20,12 +20,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // --- CONFIGURATION ---
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || 'YOUR_BOT_TOKEN_HERE';
-const TELEGRAM_GROUP_ID = process.env.GROUP_ID || 'YOUR_GROUP_ID_HERE'; // e.g., -100123456789
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8440495160:AAG3Yg0goaoIRA-B9YsKDOKX_wEvPEMjlsE';
+const TELEGRAM_GROUP_ID = process.env.GROUP_ID || '-1003860053498'; // e.g., -100123456789
 const SITE_URL = process.env.SITE_URL || 'http://localhost:5173'; // Frontend URL
 
 // Check Config
-if (TELEGRAM_TOKEN === 'YOUR_BOT_TOKEN_HERE' || TELEGRAM_GROUP_ID === 'YOUR_GROUP_ID_HERE') {
+if (TELEGRAM_TOKEN === '8440495160:AAG3Yg0goaoIRA-B9YsKDOKX_wEvPEMjlsE' || TELEGRAM_GROUP_ID === '-1003860053498') {
   console.warn("⚠️  WARNING: Telegram Bot Token or Group ID is not set. Telegram features will fail.");
 }
 
