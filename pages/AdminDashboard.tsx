@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -8,7 +7,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { 
-  getCases, updateCaseStatus, getStudents, updateStudentStatus, assignCaseToStudent, approveCaseAssignment, publishCase, deleteCase, deleteStudent
+  getCases, updateCaseStatus, getStudents, updateStudentStatus, approveCaseAssignment, publishCase, deleteCase, deleteStudent
 } from '../services/dataService';
 import { PatientCase, CaseStatus, Student, StudentStatus } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, STUDENT_STATUS_LABELS } from '../constants';
