@@ -56,6 +56,7 @@ export interface PatientCase {
   submissionDate: string; // ISO date string
   assignedStudentId?: string | null;
   assignedStudent?: string; // Name of the student who claimed the case
+  claimToken?: string; // Secure token for link claiming
   statusHistory: StatusHistoryLog[];
   legalConsents: {
     termsAccepted: boolean;
