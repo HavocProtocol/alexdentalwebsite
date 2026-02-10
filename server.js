@@ -3,7 +3,7 @@
  * Alexandria Dental Care - Backend Server
  * 
  * Instructions:
- * 1. Install dependencies: npm install express cors sqlite3 node-telegram-bot-api body-parser
+ * 1. Install dependencies: npm install express cors sqlite3 node-telegram-bot-api body-parser crypto
  * 2. Get Token from @BotFather
  * 3. Set environment variables or update the constants below
  * 4. Run: node server.js
@@ -14,16 +14,18 @@ const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const TelegramBot = require('node-telegram-bot-api');
 const bodyParser = require('body-parser');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // --- CONFIGURATION ---
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8440495160:AAG3Yg0goaoIRA-B9YsKDOKX_wEvPEMjlsE';
-const TELEGRAM_GROUP_ID = process.env.GROUP_ID || '-1003860053498'; // e.g., -100123456789
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || 'YOUR_BOT_TOKEN_HERE';
+const TELEGRAM_GROUP_ID = process.env.GROUP_ID || 'YOUR_GROUP_ID_HERE'; // e.g., -100123456789
+const SITE_URL = process.env.SITE_URL || 'http://localhost:5173'; // Frontend URL
 
 // Check Config
-if (TELEGRAM_TOKEN === '8440495160:AAG3Yg0goaoIRA-B9YsKDOKX_wEvPEMjlsE' || TELEGRAM_GROUP_ID === '-1003860053498') {
+if (TELEGRAM_TOKEN === 'YOUR_BOT_TOKEN_HERE' || TELEGRAM_GROUP_ID === 'YOUR_GROUP_ID_HERE') {
   console.warn("⚠️  WARNING: Telegram Bot Token or Group ID is not set. Telegram features will fail.");
 }
 
@@ -51,7 +53,8 @@ db.serialize(() => {
     status TEXT DEFAULT 'RECEIVED',
     assignedStudent TEXT,
     assignedStudentChatId TEXT,
-    submissionDate TEXT
+    submissionDate TEXT,
+    claimToken TEXT
   )`);
 
   db.run(`CREATE TABLE IF NOT EXISTS students (
@@ -70,109 +73,9 @@ db.serialize(() => {
 let bot = null;
 if (TELEGRAM_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
     bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-    console.log("✅ Telegram Bot initialized with polling.");
-
-    // Handle "Claim Case" button clicks (Robust Logic)
-    bot.on('callback_query', (query) => {
-      const chatId = query.message.chat.id; // Group Chat ID
-      const userChatId = query.from.id; // Student Private Chat ID
-      const studentName = query.from.first_name + (query.from.last_name ? ' ' + query.from.last_name : '');
-      const studentUsername = query.from.username ? `@${query.from.username}` : studentName;
-      const data = query.data;
-
-      if (data.startsWith('claim_')) {
-        const caseId = data.split('_')[1];
-
-        // 1. Transaction-like check to prevent race conditions
-        db.get("SELECT * FROM cases WHERE id = ?", [caseId], (err, row) => {
-          if (err || !row) {
-            bot.answerCallbackQuery(query.id, { text: "❌ حدث خطأ: الحالة غير موجودة في النظام." });
-            return;
-          }
-
-          // STRICT CHECK: Case must be in 'SENT_TO_STUDENTS' state only
-          // This prevents two students from claiming the same case
-          if (row.status !== 'SENT_TO_STUDENTS') {
-            bot.answerCallbackQuery(query.id, { text: "⚠️ عذراً، هذه الحالة تم حجزها بالفعل من قبل طالب آخر.", show_alert: true });
-            
-            // Remove button from message to prevent further clicks
-            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-              chat_id: chatId,
-              message_id: query.message.message_id
-            }).catch(() => {});
-            return;
-          }
-
-          // 2. Atomic Update (Lock the case)
-          // We assume 'IN_TREATMENT' or 'APPROVED_FOR_TREATMENT' means claimed
-          db.run("UPDATE cases SET status = ?, assignedStudent = ?, assignedStudentChatId = ? WHERE id = ?", 
-            ['APPROVED_FOR_TREATMENT', studentUsername, userChatId, caseId], 
-            (updateErr) => {
-              if (updateErr) {
-                bot.answerCallbackQuery(query.id, { text: "حدث خطأ في قاعدة البيانات. حاول مرة أخرى." });
-                return;
-              }
-
-              // 3. Notify Student (Popup)
-              bot.answerCallbackQuery(query.id, { 
-                text: "✅ تم استلام الحالة بنجاح! راجع الرسائل الخاصة للتفاصيل.", 
-                show_alert: true 
-              });
-
-              // 4. Update Group Message (Remove Button & Show Owner)
-              const originalText = query.message.text;
-              const cleanText = originalText.split('👇')[0].trim(); 
-              
-              bot.editMessageText(`${cleanText}\n\n🔒 *تم الحجز بواسطة:* ${studentUsername}`, {
-                chat_id: chatId,
-                message_id: query.message.message_id,
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [] } // Remove buttons
-              });
-              
-              // 5. Send Private DM with SENSITIVE DETAILS
-              const privateMessage = `
-🎉 *تهانينا! تم إسناد الحالة لك.*
-
-📝 *تفاصيل المريض:*
-🆔 رقم الملف: \`${row.id}\`
-👤 الاسم: *${row.fullName}*
-📞 الهاتف: \`${row.phone}\`
-📍 المنطقة: ${row.district}
-
-⚠️ *التاريخ المرضي:*
-${row.medicalHistory || "لا توجد أمراض مزمنة معلنة"}
-
-💬 *ملاحظات:*
-${row.notes || "لا يوجد"}
-
-📌 *تعليمات هامة:*
-1. تواصل مع المريض فوراً لتحديد الموعد.
-2. تأكد من أخذ تاريخ مرضي مفصل في أول زيارة.
-3. أنت المسؤول قانونياً وأكاديمياً عن هذه الحالة أمام المشرف.
-
-بالتوفيق يا دكتور! 🦷
-              `.trim();
-
-              bot.sendMessage(userChatId, privateMessage, { parse_mode: 'Markdown' })
-                .then(() => {
-                   console.log(`Sent DM to ${studentUsername} (${userChatId})`);
-                })
-                .catch((e) => {
-                   console.error(`Failed to DM student ${studentUsername}:`, e.message);
-                   bot.sendMessage(chatId, `⚠️ تنبيه لـ ${studentUsername}: لم نتمكن من إرسال تفاصيل المريض لك. تأكد من أنك بدأت المحادثة مع البوت @${process.env.BOT_USERNAME || 'bot'}`);
-                });
-            }
-          );
-        });
-      }
-    });
-
-    bot.on('polling_error', (error) => {
-       console.error("Telegram Polling Error:", error.code); 
-    });
-} else {
-    console.log("❌ Telegram Bot NOT initialized (Missing Token).");
+    console.log("✅ Telegram Bot initialized.");
+    // Bot error handling
+    bot.on('polling_error', (error) => console.log(error.code));
 }
 
 // --- API ENDPOINTS ---
@@ -201,13 +104,17 @@ app.post('/api/submit', (req, res) => {
         console.error(err);
         return res.status(500).json({ success: false, error: "Database error" });
       }
+      
+      // Notify Admins privately via bot if configured (optional)
+      // bot.sendMessage(ADMIN_ID, "New case received: " + data.id);
+
       res.json({ success: true, id: data.id });
     }
   );
   stmt.finalize();
 });
 
-// Publish Case (Admin Side) - Triggers Telegram
+// Publish Case (Admin Side) - Generates Token & Sends Link to Telegram
 app.post('/api/cases/publish', (req, res) => {
   const { id } = req.body;
 
@@ -220,11 +127,13 @@ app.post('/api/cases/publish', (req, res) => {
       return res.status(404).json({ error: "الحالة غير موجودة" });
     }
 
-    // 1. Update Status first
-    db.run("UPDATE cases SET status = 'SENT_TO_STUDENTS' WHERE id = ?", [id], (updateErr) => {
+    // Generate Secure Token
+    const token = crypto.randomBytes(32).toString('hex');
+
+    // Update Status & Token
+    db.run("UPDATE cases SET status = 'SENT_TO_STUDENTS', claimToken = ? WHERE id = ?", [token, id], (updateErr) => {
       if (updateErr) return res.status(500).json({ error: "فشل تحديث قاعدة البيانات" });
 
-      // 2. Format Telegram Message
       const problemsArr = row.problem ? row.problem.split(', ') : [];
       const message = `
 📢 *حالة جديدة متاحة للحجز* 🦷
@@ -236,17 +145,19 @@ app.post('/api/cases/publish', (req, res) => {
 🛑 *الشكوى الرئيسية:*
 ${problemsArr.map(p => `- ${p}`).join('\n')}
 
-⚠️ *تنبيه:* بيانات الاتصال والتاريخ المرضي مخفية. ستظهر فقط للطالب الذي يقوم بالحجز أولاً.
+⚠️ *تنبيه:* بيانات المريض مخفية. يجب تسجيل الدخول للمنصة لقبول الحالة.
 
-👇 اضغط على الزر أدناه لاستلام الحالة فوراً
+👇 اضغط على الرابط أدناه لعرض التفاصيل وقبول الحالة
       `.trim();
 
-      // 3. Send to Group with Claim Button
+      // Send Link Button (Not Callback)
+      const claimUrl = `${SITE_URL}/#/claim/${token}`;
+
       bot.sendMessage(TELEGRAM_GROUP_ID, message, {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: "✅ استلام الحالة (حجز فوري)", callback_data: `claim_${row.id}` }]
+            [{ text: "🔗 عرض التفاصيل وقبول الحالة", url: claimUrl }]
           ]
         }
       }).then(() => {
@@ -257,6 +168,88 @@ ${problemsArr.map(p => `- ${p}`).join('\n')}
       });
     });
   });
+});
+
+// Verify Token & Get Case Preview (Secure)
+app.get('/api/cases/claim-info/:token', (req, res) => {
+    const { token } = req.params;
+    
+    db.get("SELECT id, age, gender, district, problem, status FROM cases WHERE claimToken = ?", [token], (err, row) => {
+        if (err) return res.status(500).json({ error: "خطأ في قاعدة البيانات" });
+        if (!row) return res.status(404).json({ error: "الرابط غير صالح أو منتهي الصلاحية" });
+        
+        if (row.status !== 'SENT_TO_STUDENTS') {
+            return res.status(400).json({ error: "عذراً، هذه الحالة تم حجزها بالفعل أو لم تعد متاحة." });
+        }
+
+        // Return only non-sensitive info
+        res.json({ 
+            success: true, 
+            case: {
+                id: row.id,
+                age: row.age,
+                gender: row.gender,
+                district: row.district,
+                problems: row.problem ? row.problem.split(', ') : []
+            }
+        });
+    });
+});
+
+// Confirm Claim (Student accepts case)
+app.post('/api/cases/confirm-claim', (req, res) => {
+    const { token, studentId, studentName } = req.body;
+
+    db.get("SELECT * FROM cases WHERE claimToken = ?", [token], (err, row) => {
+        if (err || !row) return res.status(404).json({ error: "الرابط غير صالح" });
+        
+        if (row.status !== 'SENT_TO_STUDENTS') {
+            return res.status(400).json({ error: "عذراً، تأخرت! الحالة تم حجزها بالفعل." });
+        }
+
+        // Atomic Update: Assign Student & Clear Token to prevent reuse
+        db.run("UPDATE cases SET status = 'APPROVED_FOR_TREATMENT', assignedStudentId = ?, assignedStudent = ?, claimToken = NULL WHERE id = ?", 
+            [studentId, studentName, row.id], 
+            (updateErr) => {
+                if (updateErr) return res.status(500).json({ error: "فشل الحفظ" });
+
+                // Send Telegram Notification (Private to Student & Public update)
+                if (bot) {
+                    // Update Group Message to show "CLAIMED"
+                    // Note: We can't edit the original message easily without message_id storage, 
+                    // but we can post a new "Locked" message or just let the link fail for others.
+                    
+                    // Send Private DM
+                    // We need student chat ID. Assuming we fetch student details or pass it.
+                    // Ideally, lookup student chat ID from DB
+                    db.get("SELECT telegramChatId FROM students WHERE id = ?", [studentId], (err, studentRow) => {
+                        if (studentRow && studentRow.telegramChatId) {
+                             const privateMessage = `
+🎉 *تهانينا! تم إسناد الحالة لك.*
+
+📝 *تفاصيل المريض:*
+🆔 رقم الملف: \`${row.id}\`
+👤 الاسم: *${row.fullName}*
+📞 الهاتف: \`${row.phone}\`
+📍 المنطقة: ${row.district}
+
+⚠️ *التاريخ المرضي:*
+${row.medicalHistory || "لا توجد أمراض مزمنة معلنة"}
+
+💬 *ملاحظات:*
+${row.notes || "لا يوجد"}
+
+📌 *تعليمات:* تواصل مع المريض خلال 24 ساعة.
+                             `.trim();
+                             bot.sendMessage(studentRow.telegramChatId, privateMessage, { parse_mode: 'Markdown' }).catch(e => console.error("DM fail", e));
+                        }
+                    });
+                }
+
+                res.json({ success: true, caseId: row.id });
+            }
+        );
+    });
 });
 
 // Get cases
@@ -329,6 +322,8 @@ app.post('/api/student/login', (req, res) => {
     if (row) {
         if (row.status === 'PENDING') return res.json({ success: false, message: 'حسابك لا يزال قيد المراجعة' });
         if (row.status === 'REJECTED') return res.json({ success: false, message: 'تم رفض الحساب' });
+        
+        // IMPORTANT: Return Telegram Chat ID if exists, to store in session
         res.json({ success: true, student: row });
     } else {
       res.json({ success: false, message: 'بيانات الدخول غير صحيحة' });
@@ -338,5 +333,4 @@ app.post('/api/student/login', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Telegram Bot: ${bot ? 'Active' : 'Disabled (No Token)'}`);
 });
