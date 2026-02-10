@@ -32,6 +32,7 @@ export const Profile: React.FC = () => {
                  <GraduationCap className="h-5 w-5 text-medical-600" />
                  <p className="text-medical-600 font-bold text-lg">طالب بالفرقة الرابعة - كلية طب الأسنان</p>
                </div>
+               <p className="text-gray-500 text-sm mt-1">تحت إشراف الأقسام العلمية بجامعة الإسكندرية</p>
             </div>
 
             <div className="mt-8 border-t border-gray-100 pt-8">
@@ -41,7 +42,7 @@ export const Profile: React.FC = () => {
                       <User className="h-5 w-5 text-medical-600" /> نبذة تعريفية
                     </h2>
                     <p className="text-gray-600 leading-relaxed">
-                      أنا طالب بالفرقة الرابعة بكلية طب الأسنان، جامعة الإسكندرية. قمت بإنشاء هذه المنصة كجزء من نشاطي الطلابي والمجتمعي بهدف تسهيل وصول المرضى لخدمات العلاج المجاني التي نقدمها في العيادات التعليمية، ولتنظيم عملية حجز الحالات لزملائي الطلاب، كل ذلك تحت الإشراف الكامل لأساتذة الكلية.
+                      أنا طالب بالفرقة الرابعة بكلية طب الأسنان، جامعة الإسكندرية. قمت بإنشاء هذه المنصة كجزء من نشاطي الطلابي والمجتمعي بهدف تسهيل وصول المرضى لخدمات العلاج المجاني التي نقدمها في العيادات التعليمية، ولتنظيم عملية حجز الحالات لزملائي الطلاب، كل ذلك يتم تحت الإشراف الكامل والمباشر لأساتذة الكلية في مختلف التخصصات.
                     </p>
                   </div>
 
@@ -51,8 +52,9 @@ export const Profile: React.FC = () => {
                         <Award className="h-5 w-5 text-medical-600" /> الدراسة الحالية
                       </h2>
                       <ul className="space-y-2 text-gray-600">
-                         <li className="flex items-center gap-2"><div className="w-2 h-2 bg-medical-400 rounded-full"></div> طالب مقيد بالفرقة الرابعة</li>
-                         <li className="flex items-center gap-2"><div className="w-2 h-2 bg-medical-400 rounded-full"></div> دراسة المناهج الإكلينيكية (جراحة، علاج جذور، حشوات، تركيبات)</li>
+                         <li className="flex items-center gap-2"><div className="w-2 h-2 bg-medical-400 rounded-full"></div> طالب مقيد بالفرقة الرابعة (المرحلة الإكلينيكية)</li>
+                         <li className="flex items-center gap-2"><div className="w-2 h-2 bg-medical-400 rounded-full"></div> العمل تحت إشراف أكاديمي مباشر</li>
+                         <li className="flex items-center gap-2"><div className="w-2 h-2 bg-medical-400 rounded-full"></div> دراسة جراحة، علاج جذور، حشوات، وتركيبات</li>
                       </ul>
                     </div>
 
@@ -61,7 +63,7 @@ export const Profile: React.FC = () => {
                         <BookOpen className="h-5 w-5 text-medical-600" /> الهدف من المنصة
                       </h2>
                       <p className="text-gray-600">
-                         المساهمة في خدمة المجتمع السكندري وتوفير وقت وجهد المرضى في البحث عن علاج، مع ضمان حصول الطلاب على التدريب العملي اللازم لمتطلبات التخرج.
+                         المساهمة في خدمة المجتمع السكندري وتوفير وقت وجهد المرضى في البحث عن علاج، مع ضمان حصول الطلاب على التدريب العملي اللازم لمتطلبات التخرج بأعلى معايير الجودة.
                       </p>
                     </div>
                   </div>
