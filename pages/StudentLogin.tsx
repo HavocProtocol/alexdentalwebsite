@@ -1,14 +1,20 @@
 
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { GraduationCap, LogIn, AlertCircle, Clock, XCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { GraduationCap, LogIn, AlertCircle, Clock, Loader2 } from 'lucide-react';
 import { loginStudent } from '../services/dataService';
 
 export const StudentLogin: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [formData, setFormData] = useState({ email: '', password: '' });
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Extract redirect URL from query params
+  const searchParams = new URLSearchParams(location.search);
+  const redirectUrl = searchParams.get('redirect');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,8 +23,16 @@ export const StudentLogin: React.FC = () => {
     setLoading(false);
     
     if (result.success && result.student) {
-      localStorage.setItem('student_session', JSON.stringify(result.student));
-      navigate('/student/dashboard');
+      const sessionData = JSON.stringify(result.student);
+      
+      if (rememberMe) {
+        localStorage.setItem('student_session', sessionData);
+      } else {
+        sessionStorage.setItem('student_session', sessionData);
+      }
+      
+      // Navigate to redirect URL (Claim Page) or Dashboard
+      navigate(redirectUrl || '/student/dashboard');
     } else {
       setError(result.message || 'حدث خطأ غير متوقع');
     }
@@ -33,6 +47,12 @@ export const StudentLogin: React.FC = () => {
           </div>
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900">دخول الطلاب</h2>
           <p className="mt-2 text-sm text-gray-600">بوابة طلاب طب الأسنان - جامعة الإسكندرية</p>
+          
+          {redirectUrl && (
+              <div className="mt-4 bg-blue-50 text-blue-700 text-sm p-2 rounded border border-blue-100">
+                  يرجى تسجيل الدخول أولاً لقبول الحالة
+              </div>
+          )}
         </div>
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
@@ -69,6 +89,20 @@ export const StudentLogin: React.FC = () => {
                 className="appearance-none block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-medical-500 focus:border-medical-500 sm:text-sm"
                 placeholder="كلمة المرور"
               />
+            </div>
+            
+            <div className="flex items-center">
+              <input
+                id="remember_me"
+                name="remember_me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 text-medical-600 focus:ring-medical-500 border-gray-300 rounded"
+              />
+              <label htmlFor="remember_me" className="mr-2 block text-sm text-gray-900 cursor-pointer select-none">
+                تذكرني على هذا الجهاز
+              </label>
             </div>
           </div>
 
