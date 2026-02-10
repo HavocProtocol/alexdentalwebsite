@@ -16,25 +16,68 @@ export const StudentLogin: React.FC = () => {
   const searchParams = new URLSearchParams(location.search);
   const redirectUrl = searchParams.get('redirect');
 
+  // Effect: Check for existing session and redirect if valid
+  useEffect(() => {
+    const checkSession = () => {
+      const localSession = localStorage.getItem('student_session');
+      const sessionSession = sessionStorage.getItem('student_session');
+      
+      if (localSession || sessionSession) {
+        try {
+           // Verify JSON integrity
+           if (localSession) JSON.parse(localSession);
+           if (sessionSession) JSON.parse(sessionSession);
+           
+           // Valid session found, redirect to dashboard or requested URL
+           navigate(redirectUrl || '/student/dashboard');
+        } catch (e) {
+           // Corrupted session data, clear it
+           localStorage.removeItem('student_session');
+           sessionStorage.removeItem('student_session');
+        }
+      }
+    };
+    
+    checkSession();
+  }, [navigate, redirectUrl]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const result = await loginStudent(formData.email, formData.password);
-    setLoading(false);
-    
-    if (result.success && result.student) {
-      const sessionData = JSON.stringify(result.student);
+    setError('');
+
+    try {
+      const result = await loginStudent(formData.email, formData.password);
+      setLoading(false);
       
-      if (rememberMe) {
-        localStorage.setItem('student_session', sessionData);
+      if (result.success && result.student) {
+        const sessionData = JSON.stringify(result.student);
+        
+        try {
+          if (rememberMe) {
+            // Persistent Session
+            localStorage.setItem('student_session', sessionData);
+            // Ensure no conflicting session exists in session storage
+            sessionStorage.removeItem('student_session'); 
+          } else {
+            // Temporary Session
+            sessionStorage.setItem('student_session', sessionData);
+            // Ensure no conflicting persistent session exists
+            localStorage.removeItem('student_session'); 
+          }
+          
+          // Navigate to redirect URL (Claim Page) or Dashboard
+          navigate(redirectUrl || '/student/dashboard');
+        } catch (storageError) {
+          console.error("Storage write error:", storageError);
+          setError('فشل حفظ بيانات الجلسة. قد تكون مساحة التخزين ممتلئة أو ملفات تعريف الارتباط محظورة.');
+        }
       } else {
-        sessionStorage.setItem('student_session', sessionData);
+        setError(result.message || 'حدث خطأ غير متوقع');
       }
-      
-      // Navigate to redirect URL (Claim Page) or Dashboard
-      navigate(redirectUrl || '/student/dashboard');
-    } else {
-      setError(result.message || 'حدث خطأ غير متوقع');
+    } catch (err) {
+      setLoading(false);
+      setError('تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.');
     }
   };
 
@@ -98,9 +141,9 @@ export const StudentLogin: React.FC = () => {
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 text-medical-600 focus:ring-medical-500 border-gray-300 rounded"
+                className="h-4 w-4 text-medical-600 focus:ring-medical-500 border-gray-300 rounded cursor-pointer"
               />
-              <label htmlFor="remember_me" className="mr-2 block text-sm text-gray-900 cursor-pointer select-none">
+              <label htmlFor="remember_me" className="mr-2 block text-sm text-gray-900 cursor-pointer select-none font-medium">
                 تذكرني على هذا الجهاز
               </label>
             </div>
