@@ -13,6 +13,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { StudentRegistration } from './pages/StudentRegistration';
 import { StudentLogin } from './pages/StudentLogin';
 import { StudentDashboard } from './pages/StudentDashboard';
+import { ClaimCase } from './pages/ClaimCase'; // New Page
 import { LegalDocs } from './pages/LegalDocs';
 import { Profile } from './pages/Profile';
 import { Education } from './pages/Education';
@@ -51,6 +52,9 @@ const AnimatedRoutes = () => {
         <Route path="/student/register" element={<StudentRegistration />} />
         <Route path="/student/login" element={<StudentLogin />} />
         <Route path="/student/dashboard" element={<StudentDashboard />} />
+        
+        {/* Secure Claim Route */}
+        <Route path="/claim/:token" element={<ClaimCase />} />
       </Routes>
     </div>
   );
