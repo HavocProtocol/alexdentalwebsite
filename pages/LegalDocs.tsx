@@ -1,7 +1,7 @@
 
 import React, { useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Shield, FileText, Lock, AlertTriangle, UserCheck, Scale, Printer, ChevronLeft } from 'lucide-react';
+import { Shield, FileText, Lock, AlertTriangle, UserCheck, Scale, Printer, ChevronLeft, ShieldAlert } from 'lucide-react';
 
 export const LegalDocs: React.FC = () => {
   const { docId } = useParams();
@@ -241,6 +241,22 @@ export const LegalDocs: React.FC = () => {
 
             {/* Content Area */}
             <div className="flex-1 p-8 md:p-12">
+              
+              {/* HUGE DISCLAIMER BANNER */}
+              <div className="bg-red-50 border-4 border-red-600 p-8 mb-10 rounded-xl shadow-lg print:border-red-600">
+                <div className="flex flex-col items-center text-center">
+                    <ShieldAlert className="h-16 w-16 text-red-600 mb-4" />
+                    <h2 className="text-2xl md:text-3xl font-extrabold text-red-900 mb-4 underline decoration-red-400 decoration-4 underline-offset-8">
+                        تنويه قانوني هام جداً
+                    </h2>
+                    <p className="text-xl md:text-2xl font-bold text-red-800 leading-relaxed">
+                        هذا الموقع الإلكتروني هو مشروع طلابي مستقل تماماً، ولا يمت بصلة رسمية أو قانونية لجامعة الإسكندرية أو إدارة كلية طب الأسنان.
+                        <br className="my-2" />
+                        الجامعة غير مسؤولة عن أي محتوى أو خدمات أو اتفاقات تتم عبر هذه المنصة.
+                    </p>
+                </div>
+              </div>
+
               {renderContent()}
               
               <div className="mt-12 pt-8 border-t text-sm text-gray-400 print:block hidden">
